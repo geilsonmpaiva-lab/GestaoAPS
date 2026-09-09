@@ -26,7 +26,7 @@
 ## Antes da homologação integrada
 
 - Supabase provisionado em São Paulo (`sa-east-1`), com 21 migrations aplicadas, 89 testes pgTAP aprovados e job operacional de alertas agendado a cada 15 minutos em 9 de setembro de 2026. O ambiente local usa `.env.local` ignorado pelo Git.
-- Provisionar a Vercel em `gru1` e cadastrar os segredos de ambiente no host.
+- Vercel provisionada em `gru1`, integrada ao GitHub e ao Supabase, com segredos classificados e primeiro deploy de produção validado em `https://gestaoaps.vercel.app` em 9 de setembro de 2026.
 - Configurar SMTP de convites, destino externo de backup, alertas de falha e exercício de restauração.
 - Executar a homologação institucional dos templates, taxonomias, metas, retenção e matriz de acesso; o produto não inventa esses conteúdos.
 
