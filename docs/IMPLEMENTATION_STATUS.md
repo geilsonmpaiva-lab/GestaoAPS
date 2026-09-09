@@ -25,8 +25,8 @@
 
 ## Antes da homologação integrada
 
-- Provisionar Supabase e Vercel nas regiões definidas e preencher os segredos de ambiente.
-- Executar as migrations e os testes pgTAP num PostgreSQL descartável; Docker não estava disponível na estação que gerou este marco.
+- Supabase provisionado em São Paulo (`sa-east-1`), com 20 migrations aplicadas e 89 testes pgTAP aprovados em 9 de setembro de 2026. O ambiente local usa `.env.local` ignorado pelo Git.
+- Provisionar a Vercel em `gru1` e cadastrar os segredos de ambiente no host.
 - Configurar SMTP de convites, destino externo de backup, Cron, alertas de falha e exercício de restauração.
 - Executar a homologação institucional dos templates, taxonomias, metas, retenção e matriz de acesso; o produto não inventa esses conteúdos.
 

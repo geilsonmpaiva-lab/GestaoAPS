@@ -10,6 +10,7 @@ end; $$;
 create trigger audit_model_versions_immutable before update or delete on public.audit_model_versions for each row execute function app.protect_published_audit_model();
 create trigger audit_model_versions_touch before update on public.audit_model_versions for each row execute function app.touch_version();
 create trigger audit_model_versions_audit after insert or update or delete on public.audit_model_versions for each row execute function app.audit_change('');
+drop trigger if exists audit_model_versions_outbox on public.audit_model_versions;
 create trigger audit_model_versions_outbox after insert or update or delete on public.audit_model_versions for each row execute function app.emit_domain_change('qualidade');
 
 create or replace function public.publish_audit_model(p_model_id uuid,p_expected_version integer,p_operation_id uuid) returns jsonb language plpgsql security definer set search_path=public,pg_temp as $$
