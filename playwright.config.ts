@@ -6,8 +6,8 @@ export default defineConfig({
   workers: 2,
   timeout: 60_000,
   reporter: "html",
-  use: { baseURL: "http://localhost:3100", trace: "on-first-retry" },
-  webServer: { command: "npm run start -- -p 3100", url: "http://localhost:3100/api/v1/health", reuseExistingServer: false, env: { SGC_DEMO_MODE: "true" } },
+  use: { baseURL: "http://localhost:3101", trace: "on-first-retry" },
+  webServer: { command: "npm run start -- -p 3101", url: "http://localhost:3101/api/v1/health", reuseExistingServer: false, env: { SGC_DEMO_MODE: "true" } },
   projects: [
     { name: "desktop-chromium", use: { ...devices["Desktop Chrome"] } },
     { name: "mobile-chromium", use: { ...devices["Pixel 7"] } },

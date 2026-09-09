@@ -23,15 +23,17 @@
 - Cofre IndexedDB cifrado, limite offline de 72 horas, fila idempotente, registro e revogação de dispositivo, limpeza no logout e visibilidade de pendências/armazenamento.
 - Motor de fórmulas por AST sem `eval`, dashboard por exceção, documentação operacional, backup cifrado, CI, testes unitários, Playwright e pgTAP.
 
-## Antes da homologação integrada
+## Homologação integrada do MVP
 
-- Supabase provisionado em São Paulo (`sa-east-1`), com 21 migrations aplicadas, 89 testes pgTAP aprovados e job operacional de alertas agendado a cada 15 minutos em 9 de setembro de 2026. O ambiente local usa `.env.local` ignorado pelo Git.
+- Supabase provisionado em São Paulo (`sa-east-1`), com 24 migrations aplicadas, 89 testes pgTAP aprovados e job operacional de alertas agendado a cada 15 minutos em 9 de setembro de 2026. O ambiente local usa `.env.local` ignorado pelo Git.
 - Vercel provisionada em `gru1`, integrada ao GitHub e ao Supabase, com segredos classificados e primeiro deploy de produção validado em `https://gestaoaps.vercel.app` em 9 de setembro de 2026.
+- Ciclo de homologação sintético, idempotente e claramente rotulado carregado na UBS Paulo VI: Conhecimento → Protocolo → Execução → Evidência privada → Indicador → Meta → Desvio → NC → Plano/ação → Eficácia → Reunião. A repetição da carga não cria duplicidades.
+- O módulo Reuniões está habilitado por feature flag para o escopo do piloto; Qualidade, Pessoas, Patrimônio, Estoque, Segurança do Paciente e Ouvidoria permanecem desabilitados.
+
+## Pendências externas e homologação manual
+
 - Configurar SMTP de convites, destino externo de backup, alertas de falha e exercício de restauração.
 - Executar a homologação institucional dos templates, taxonomias, metas, retenção e matriz de acesso; o produto não inventa esses conteúdos.
-
-## Antes do piloto e das ondas sensíveis
-
-- Homologar a matriz institucional de acesso e o ciclo completo com dados sintéticos.
 - Realizar testes de carga, acessibilidade manual, instalação PWA e recuperação de desastre nos dispositivos-alvo.
 - Somente liberar dados reais/sensíveis depois dos gates contratuais, LGPD, retenção, resposta a incidentes e infraestrutura paga descritos no plano.
+- Apontar o DNS de `qualeansaude.tech` para a Vercel. Enquanto isso, o piloto permanece disponível no domínio `gestaoaps.vercel.app`.
