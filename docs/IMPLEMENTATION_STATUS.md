@@ -25,9 +25,9 @@
 
 ## Antes da homologação integrada
 
-- Supabase provisionado em São Paulo (`sa-east-1`), com 20 migrations aplicadas e 89 testes pgTAP aprovados em 9 de setembro de 2026. O ambiente local usa `.env.local` ignorado pelo Git.
+- Supabase provisionado em São Paulo (`sa-east-1`), com 21 migrations aplicadas, 89 testes pgTAP aprovados e job operacional de alertas agendado a cada 15 minutos em 9 de setembro de 2026. O ambiente local usa `.env.local` ignorado pelo Git.
 - Provisionar a Vercel em `gru1` e cadastrar os segredos de ambiente no host.
-- Configurar SMTP de convites, destino externo de backup, Cron, alertas de falha e exercício de restauração.
+- Configurar SMTP de convites, destino externo de backup, alertas de falha e exercício de restauração.
 - Executar a homologação institucional dos templates, taxonomias, metas, retenção e matriz de acesso; o produto não inventa esses conteúdos.
 
 ## Antes do piloto e das ondas sensíveis
