@@ -25,7 +25,8 @@ export async function proxy(request: NextRequest) {
     url.searchParams.set("returnTo", request.nextUrl.pathname);
     return NextResponse.redirect(url);
   }
-  if (data.user && request.nextUrl.pathname === "/login") {
+  const isPasswordSetup = request.nextUrl.searchParams.get("passwordSetup") === "recovery";
+  if (data.user && request.nextUrl.pathname === "/login" && !isPasswordSetup) {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     url.search = "";

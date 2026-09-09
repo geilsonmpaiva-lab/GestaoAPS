@@ -54,7 +54,7 @@ export default function LoginPage() {
     setLoading(true);
     setMessage(null);
     try {
-      const client = createSupabaseRecoveryClient();
+      const client = createSupabaseBrowserClient();
       const { error } = await client.auth.signInWithPassword({ email, password });
       if (error) throw error;
       const returnTo = new URLSearchParams(window.location.search).get("returnTo");
@@ -71,7 +71,7 @@ export default function LoginPage() {
     if (!email) return setMessage("Informe seu e-mail para recuperar o acesso.");
     setLoading(true);
     try {
-      const client = createSupabaseBrowserClient();
+      const client = createSupabaseRecoveryClient();
       const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/login` });
       if (error) throw error;
       setMessage("Enviamos as instruções de recuperação para o seu e-mail.");
