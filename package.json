@@ -25,7 +25,8 @@
     "db:test": "supabase test db",
     "backup": "node scripts/backup.mjs",
     "backup:verify": "node scripts/verify-backup.mjs",
-    "backup:prepare-restore": "node scripts/prepare-restore.mjs"
+    "backup:prepare-restore": "node scripts/prepare-restore.mjs",
+    "bootstrap:admin": "node scripts/bootstrap-admin.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
