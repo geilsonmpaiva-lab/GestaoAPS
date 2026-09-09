@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, KeyRound, LockKeyhole, Mail, Stethoscope } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/client/supabase";
+import { readAuthCallback } from "@/lib/client/auth-callback";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -17,8 +18,33 @@ export default function LoginPage() {
   useEffect(() => {
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) return;
     const client = createSupabaseBrowserClient();
-    const { data } = client.auth.onAuthStateChange((event) => { if (event === "PASSWORD_RECOVERY") setRecovery(true); });
-    return () => data.subscription.unsubscribe();
+    const callback = readAuthCallback(window.location.href);
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      if (callback.error) setMessage(callback.error);
+      if (callback.mode) {
+        setRecovery(true);
+        setLoading(true);
+      }
+    });
+    if (callback.mode) {
+      void client.auth.getSession().then(({ data: { session } }) => {
+        if (!active) return;
+        if (!session) setMessage("Não foi possível validar este link. Solicite uma nova recuperação de senha.");
+        setLoading(false);
+      });
+    }
+    const { data } = client.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY" || (callback.mode === "invite" && event === "SIGNED_IN")) {
+        setRecovery(true);
+        setLoading(false);
+      }
+    });
+    return () => {
+      active = false;
+      data.subscription.unsubscribe();
+    };
   }, []);
 
   async function signIn(event: React.FormEvent) {
@@ -68,7 +94,7 @@ export default function LoginPage() {
     </section>
     <section className="login-form-wrap">
       <form className="login-card" onSubmit={recovery ? updatePassword : signIn}>
-        <div><span className="eyebrow">Acesso institucional</span><h2>Bem-vindo de volta</h2><p>Entre com o e-mail que recebeu o convite.</p></div>
+        <div><span className="eyebrow">Acesso institucional</span><h2>{recovery ? "Defina sua nova senha" : "Bem-vindo de volta"}</h2><p>{recovery ? "Crie uma senha exclusiva com pelo menos 10 caracteres." : "Entre com o e-mail que recebeu o convite."}</p></div>
         {!recovery && <label>E-mail<div className="login-input"><Mail size={16} /><input type="email" required autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="voce@municipio.gov.br" /></div></label>}
         <label>{recovery ? "Nova senha" : "Senha"}<div className="login-input"><KeyRound size={16} /><input type="password" required minLength={recovery ? 10 : undefined} autoComplete={recovery ? "new-password" : "current-password"} value={recovery ? newPassword : password} onChange={(event) => recovery ? setNewPassword(event.target.value) : setPassword(event.target.value)} placeholder={recovery ? "Mínimo de 10 caracteres" : "Sua senha"} /></div></label>
         {message && <div className="login-message" role="status">{message}</div>}
