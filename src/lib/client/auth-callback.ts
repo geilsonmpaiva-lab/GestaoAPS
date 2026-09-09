@@ -11,6 +11,8 @@ export function readAuthCallback(urlValue: string): AuthCallbackState {
   const type = hash.get("type") ?? url.searchParams.get("type");
   const errorCode = hash.get("error_code") ?? url.searchParams.get("error_code");
   const errorDescription = hash.get("error_description") ?? url.searchParams.get("error_description");
+  const authError = url.searchParams.get("authError");
+  const passwordSetup = url.searchParams.get("passwordSetup");
 
   if (errorCode === "otp_expired") {
     return {
@@ -23,8 +25,15 @@ export function readAuthCallback(urlValue: string): AuthCallbackState {
     return { mode: null, error: errorDescription.replaceAll("+", " ") };
   }
 
+  if (authError === "invalid_or_expired") {
+    return {
+      mode: null,
+      error: "Este link é inválido ou expirou. Solicite uma nova recuperação de senha.",
+    };
+  }
+
   return {
-    mode: type === "recovery" || type === "invite" ? type : null,
+    mode: passwordSetup === "recovery" ? "recovery" : type === "recovery" || type === "invite" ? type : null,
     error: null,
   };
 }
