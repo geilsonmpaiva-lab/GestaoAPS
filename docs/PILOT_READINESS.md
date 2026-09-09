@@ -9,7 +9,7 @@ Este documento controla os gates que não podem ser aprovados apenas pela equipe
 | Supabase em São Paulo | Conforme | Projeto saudável em `sa-east-1`. |
 | Vercel em São Paulo | Conforme tecnicamente | Funções configuradas em `gru1`; confirmar plano institucional antes do piloto formal. |
 | SMTP transacional | Pendente | Definir provedor, remetente e credenciais; configurar SPF, DKIM e DMARC; testar convite e recuperação. |
-| Domínio próprio | Em configuração | `gestaoaps.qualeansaude.tech` cadastrado e verificado no projeto Vercel; falta criar seu CNAME no hPanel e validar TLS. O domínio principal permanece no servidor atual. |
+| Domínio próprio | Conforme | `gestaoaps.qualeansaude.tech` cadastrado na Vercel, resolvido por CNAME e validado com HTTPS. O domínio principal permanece no servidor atual. |
 | Backup externo | Pendente | Não foi identificado destino removível ou nuvem institucional. Definir mídia/serviço, custodiante e retenção. |
 | Ciclo MVP sintético | Conforme | Doze elos do ciclo carregados e verificados de forma idempotente. |
 | Dispositivos físicos | Pendente | Executar a matriz de homologação abaixo. |
@@ -45,9 +45,9 @@ Registro isolado a criar conforme a configuração do projeto Vercel:
 
 | Tipo | Nome | Valor | Estado |
 |---|---|---|---|
-| CNAME | `gestaoaps` | `cf021c64a01a1750.vercel-dns-017.com` | Pendente |
+| CNAME | `gestaoaps` | `cf021c64a01a1750.vercel-dns-017.com` | Conforme |
 
-Após a propagação, validar `https://gestaoaps.qualeansaude.tech` e seu certificado TLS. O novo endereço e `https://gestaoaps.vercel.app/**` já estão autorizados como Redirect URLs no Supabase; trocar o Site URL somente depois da validação. Manter `https://gestaoaps.vercel.app` como contingência durante a transição.
+`https://gestaoaps.qualeansaude.tech` e seu certificado TLS foram validados. O endereço é o Site URL do Supabase e a origem pública configurada na Vercel. `https://gestaoaps.vercel.app/**` permanece autorizado como contingência durante a transição.
 
 ## 3. Backup e restauração
 
