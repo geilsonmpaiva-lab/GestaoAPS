@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, KeyRound, LockKeyhole, Mail, Stethoscope } from "lucide-react";
-import { createSupabaseBrowserClient } from "@/lib/client/supabase";
+import { createSupabaseBrowserClient, createSupabaseRecoveryClient } from "@/lib/client/supabase";
 import { readAuthCallback } from "@/lib/client/auth-callback";
 
 export default function LoginPage() {
@@ -14,11 +14,13 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [recovery, setRecovery] = useState(false);
   const [newPassword, setNewPassword] = useState("");
+  const useImplicitRecovery = useRef(false);
 
   useEffect(() => {
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) return;
-    const client = createSupabaseBrowserClient();
     const callback = readAuthCallback(window.location.href);
+    useImplicitRecovery.current = callback.mode !== null && window.location.hash.includes("access_token=");
+    const client = useImplicitRecovery.current ? createSupabaseRecoveryClient() : createSupabaseBrowserClient();
     let active = true;
     queueMicrotask(() => {
       if (!active) return;
@@ -52,7 +54,7 @@ export default function LoginPage() {
     setLoading(true);
     setMessage(null);
     try {
-      const client = createSupabaseBrowserClient();
+      const client = createSupabaseRecoveryClient();
       const { error } = await client.auth.signInWithPassword({ email, password });
       if (error) throw error;
       const returnTo = new URLSearchParams(window.location.search).get("returnTo");
@@ -82,7 +84,18 @@ export default function LoginPage() {
 
   async function updatePassword(event: React.FormEvent) {
     event.preventDefault(); setLoading(true); setMessage(null);
-    try { const client=createSupabaseBrowserClient(); const {error}=await client.auth.updateUser({password:newPassword}); if(error)throw error; setMessage("Senha atualizada. Você já pode continuar."); setRecovery(false); router.replace("/"); router.refresh(); }
+    try {
+      const client=useImplicitRecovery.current ? createSupabaseRecoveryClient() : createSupabaseBrowserClient();
+      const {data:{user}}=await client.auth.getUser();
+      const {error}=await client.auth.updateUser({password:newPassword});
+      if(error)throw error;
+      if(useImplicitRecovery.current&&user?.email){
+        await client.auth.signOut();
+        const {error:signInError}=await createSupabaseBrowserClient().auth.signInWithPassword({email:user.email,password:newPassword});
+        if(signInError)throw signInError;
+      }
+      setMessage("Senha atualizada. Você já pode continuar."); setRecovery(false); router.replace("/"); router.refresh();
+    }
     catch(error){setMessage(error instanceof Error?error.message:"Não foi possível atualizar a senha.");} finally{setLoading(false);}
   }
 
