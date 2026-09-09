@@ -162,6 +162,9 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .login-input { min-height: 45px; padding: 0 12px; display: flex; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 11px; color: #75857e; background: #fbfcfb; }
 .login-input:focus-within { border-color: var(--forest); box-shadow: 0 0 0 3px rgba(23,95,76,.09); }
 .login-input input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 12px; }
+.password-visibility { width: 32px; height: 32px; flex: 0 0 32px; display: inline-grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--forest); cursor: pointer; }
+.password-visibility:hover { background: rgba(23,95,76,.08); }
+.password-visibility:focus-visible { outline: 2px solid var(--forest); outline-offset: 2px; }
 .login-submit { justify-content: center; }
 .link-button { border: 0; background: transparent; color: var(--forest); font-size: 11px; font-weight: 800; cursor: pointer; }
 .login-card > small { padding-top: 12px; border-top: 1px solid #edf1ee; color: var(--ink-soft); line-height: 1.5; text-align: center; }
