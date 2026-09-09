@@ -1,0 +1,5 @@
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { createSupabaseServerClient, isDemoMode, requireActor } from "@/lib/server/supabase";
+const schema=z.object({unitId:z.uuid(),from:z.iso.datetime({offset:true}),to:z.iso.datetime({offset:true})}).refine(v=>new Date(v.to)>new Date(v.from)&&new Date(v.to).getTime()-new Date(v.from).getTime()<=32*86400000,{message:"O período deve ter entre 1 e 32 dias."});
+export async function GET(request:NextRequest){if(!await requireActor())return NextResponse.json({error:"Não autenticado."},{status:401});const parsed=schema.safeParse(Object.fromEntries(request.nextUrl.searchParams));if(!parsed.success)return NextResponse.json({error:"Período de cobertura inválido.",issues:parsed.error.issues},{status:422});if(isDemoMode())return NextResponse.json({data:[],mode:"demo"});const client=await createSupabaseServerClient();const{data,error}=await client.rpc("people_coverage",{p_unit_id:parsed.data.unitId,p_from:parsed.data.from,p_to:parsed.data.to});return error?NextResponse.json({error:"Não foi possível calcular a cobertura.",code:error.code},{status:422}):NextResponse.json({data});}
