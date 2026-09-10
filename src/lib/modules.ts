@@ -8,6 +8,12 @@ export type ModuleRecord = {
   status: string;
   tone: "green" | "amber" | "red" | "blue" | "gray";
   progress?: number;
+  href?: string;
+  resource?: string;
+  rawStatus?: string;
+  responsibleId?: string;
+  responsibleName?: string;
+  dueAt?: string;
 };
 
 export type ModuleDefinition = {
@@ -20,6 +26,7 @@ export type ModuleDefinition = {
   metrics: Array<{ label: string; value: string; note: string }>;
   records: ModuleRecord[];
   filters: string[];
+  pageInfo?: { page: number; pageSize: number; total: number };
 };
 
 export const modules: Record<string, ModuleDefinition> = {

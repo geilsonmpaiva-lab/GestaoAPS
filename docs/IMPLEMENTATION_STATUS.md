@@ -1,5 +1,13 @@
 # Estado da implantação
 
+## Revisão UX/UI de 09/09/2026 — ainda não promovida
+
+A implementação local da experiência `ux_mvp_v2` acrescenta navegação, cadastros, detalhes operacionais, filtros/paginação e rascunhos cifrados. Os registros abaixo sobre infraestrutura e carga sintética são históricos: **não comprovam a execução completa do MVP pela interface**. O offline integral e a homologação autenticada continuam pendentes.
+
+Nesta revisão passaram 41 testes unitários, 122 asserções PostgreSQL executadas em transações com rollback e 26 jornadas Chromium. WebKit teve falhas de processo/memória e não está homologado. As migrations 025–031 foram apenas testadas com rollback: não estão aplicadas permanentemente no piloto. Não houve deploy nem habilitação da nova interface.
+
+Consulte [a auditoria e os bloqueios de promoção](UX_AUDIT.md) e [as instruções de revisão](UX_REVIEW.md) antes de interpretar os marcos históricos abaixo como aceite final.
+
 ## Entregue neste marco
 
 - Aplicação Next.js mobile-first, PWA instalável, shell responsivo e telas de todos os domínios.
@@ -37,3 +45,7 @@
 - Realizar testes de carga, acessibilidade manual, instalação PWA e recuperação de desastre nos dispositivos-alvo.
 - Somente liberar dados reais/sensíveis depois dos gates contratuais, LGPD, retenção, resposta a incidentes e infraestrutura paga descritos no plano.
 - Apontar o DNS de `qualeansaude.tech` para a Vercel. Enquanto isso, o piloto permanece disponível no domínio `gestaoaps.vercel.app`.
+
+## Formulários ESF — fundação local, implantação incompleta
+
+Catálogo das dez páginas do PDF, equipes/acessos e produção diária com consolidação mensal/anual foram acrescentados localmente. A produção inclui revisão/fechamento/reabertura, rascunho cifrado, impressão mensal e exportação XLSX. As outras nove fichas permanecem como dicionários em preparação, sem entrada nominal habilitada. Offline integral não foi concluído. Migrations 033–034 e pgTAP ESF ainda não foram aplicados/executados no Supabase; nenhum deploy ou promoção de flag foi feito nesta entrega. Consultar `docs/ESF_FORMS.md` para o quadro de implementação e pendências. Validação local: 85 testes unitários/API, 48 jornadas Chromium desktop/mobile, lint e build aprovados.

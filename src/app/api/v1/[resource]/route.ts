@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { modules } from "@/lib/modules";
 import { createSupabaseServerClient, isDemoMode, requireActor } from "@/lib/server/supabase";
+import { loadWorkspaceContext } from "@/lib/server/workspace";
 
 type ResourceDefinition = { table: string; demoModule?: string; search?: string[]; domain?: boolean; responsible?: string; type?: string; due?: string };
 const resources: Record<string, ResourceDefinition> = {
   organizations: { table: "organizations", demoModule: "administracao", search: ["name"] },
-  units: { table: "units", demoModule: "administracao", search: ["name", "cnes_code"] },
+  units: { table: "units", demoModule: "administracao", search: ["name", "cnes"] },
   knowledge: { table: "knowledge_items", demoModule: "conhecimento", search: ["title", "domain", "type"], domain: true, responsible: "responsible_id", type: "type" },
   protocols: { table: "protocols", demoModule: "protocolos", search: ["title", "code", "domain"], domain: true, responsible: "responsible_id" },
   executions: { table: "executions", demoModule: "protocolos" },
@@ -69,9 +70,10 @@ export async function GET(request: NextRequest, context: { params: Promise<{ res
   const definition = resources[resource];
   if (!definition) return NextResponse.json({ error: "Recurso desconhecido." }, { status: 404 });
 
-  const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
-  const pageSize = Math.min(50, Math.max(1, Number(request.nextUrl.searchParams.get("pageSize") || 20)));
-  const unitId = request.nextUrl.searchParams.get("unitId");
+  const pagination = z.object({ page: z.coerce.number().int().min(1).max(100000), pageSize: z.coerce.number().int().min(1).max(50) }).safeParse({ page: request.nextUrl.searchParams.get("page") ?? 1, pageSize: request.nextUrl.searchParams.get("pageSize") ?? 20 });
+  if (!pagination.success) return NextResponse.json({ error: "Paginação inválida." }, { status: 422 });
+  const { page, pageSize } = pagination.data;
+  const requestedUnitId = request.nextUrl.searchParams.get("unitId");
   const status = request.nextUrl.searchParams.get("status");
   const search = normalizedSearch(request.nextUrl.searchParams.get("search") ?? request.nextUrl.searchParams.get("q"));
   const domain = request.nextUrl.searchParams.get("domain");
@@ -88,6 +90,11 @@ export async function GET(request: NextRequest, context: { params: Promise<{ res
     return NextResponse.json({ data: records.slice(offset, offset + pageSize), page, pageSize, total: records.length, mode: "demo" });
   }
 
+  const workspace = await loadWorkspaceContext();
+  if (definition.demoModule && !workspace.enabledModules.includes(definition.demoModule)) return NextResponse.json({ error: "Módulo não disponível no escopo selecionado." }, { status: 403 });
+  const requestedOrganizationId = request.nextUrl.searchParams.get("organizationId");
+  if ((requestedUnitId !== null && requestedUnitId !== workspace.unitId) || (requestedOrganizationId !== null && requestedOrganizationId !== workspace.organizationId)) return NextResponse.json({ error: "O escopo solicitado difere da unidade selecionada." }, { status: 403 });
+  const unitId = workspace.unitId;
   const client = await createSupabaseServerClient();
   if (resource === "safety-events" || resource === "ombudsman") {
     if (!unitId || !z.uuid().safeParse(unitId).success) return NextResponse.json({ error: "Selecione uma UBS para consultar dados restritos." }, { status: 422 });
@@ -100,7 +107,9 @@ export async function GET(request: NextRequest, context: { params: Promise<{ res
     return NextResponse.json({ data: rows, page: 1, pageSize, total: rows.length });
   }
   let query = client.from(definition.table).select("*", { count: "exact" }).range((page - 1) * pageSize, page * pageSize - 1);
-  if (unitId) query = query.eq("unit_id", unitId);
+  query = query.eq(resource === "organizations" ? "id" : "organization_id", workspace.organizationId);
+  if (unitId && resource !== "organizations") query = query.eq(resource === "units" ? "id" : "unit_id", unitId);
+  if (resource === "notifications") query = query.eq("user_id", actor.id);
   if (status) query = query.eq("status", status);
   if (search && definition.search?.length) query = query.or(definition.search.map((column) => `${column}.ilike.%${search}%`).join(","));
   if (domain && definition.domain) query = query.eq("domain", domain);
@@ -120,10 +129,16 @@ export async function POST(request: NextRequest, context: { params: Promise<{ re
   const schema = createSchemas[resource as keyof typeof createSchemas];
   const definition = resources[resource];
   if (!schema || !definition) return NextResponse.json({ error: "Criação ainda não disponível para este recurso." }, { status: 405 });
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  const raw = await request.json().catch(() => null);
+  const parsed = schema.safeParse(raw);
   if (!parsed.success) return NextResponse.json({ error: "Dados de cadastro inválidos.", issues: parsed.error.issues }, { status: 422 });
   const input = parsed.data as Record<string, unknown> & { organizationId: string; unitId: string | null };
   if (isDemoMode()) return NextResponse.json({ id: crypto.randomUUID(), ...input, status: "RASCUNHO", mode: "demo" }, { status: 201 });
+
+  const workspace = await loadWorkspaceContext();
+  if (definition.demoModule && !workspace.enabledModules.includes(definition.demoModule)) return NextResponse.json({ error: "Módulo não disponível no escopo selecionado." }, { status: 403 });
+  const authorizedScope = input.organizationId === workspace.organizationId && (workspace.unitId ? input.unitId === workspace.unitId : workspace.scopes.some(scope => scope.organizationId === input.organizationId && scope.unitId === input.unitId));
+  if (!authorizedScope) return NextResponse.json({ error: "O cadastro deve pertencer ao escopo selecionado e autorizado." }, { status: 403 });
 
   const common = { organization_id: input.organizationId, unit_id: input.unitId, created_by: actor.id };
   let payload: Record<string, unknown>;
@@ -150,6 +165,12 @@ export async function POST(request: NextRequest, context: { params: Promise<{ re
     payload = { ...common, title: input.title, due_at: input.dueAt, origin_type: "MANUAL", origin_id: crypto.randomUUID(), responsible_id: actor.id, updated_by: actor.id };
   }
   const client = await createSupabaseServerClient();
+  if (['knowledge','protocols','indicators','meetings','action-plans'].includes(resource) && raw?.operationId) {
+    if (!z.uuid().safeParse(raw.operationId).success) return NextResponse.json({error:'Identificação da operação inválida.'},{status:422});
+    const {data,error} = await client.rpc('create_mvp_record',{p_resource:resource,p_operation_id:raw.operationId,p_input:input});
+    if (error) return NextResponse.json({error:error.code==='42501'?'Sem permissão neste escopo.':error.code==='22023'?'Revise os dados. A operação pode já ter sido enviada com outros valores.':'Não foi possível criar o registro.',code:error.code},{status:error.code==='42501'?403:422});
+    return NextResponse.json(data,{status:201});
+  }
   const { data, error } = await client.from(definition.table).insert(payload).select("*").single();
   if (error) return NextResponse.json({ error: error.code === "42501" ? "Sem permissão para criar neste escopo." : "Não foi possível criar o registro.", code: error.code }, { status: error.code === "42501" ? 403 : 422 });
   return NextResponse.json(data, { status: 201 });
