@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState, useSyncExternalStore, useTransition } from 'react';
+import { useEffect, useId, useRef, useState, useSyncExternalStore, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import type { EsfField } from '@/lib/esf/catalog';
 import { blankMap, calculatedRow, displayMapValue, mapDefinition, mapStatusLabels, validateMap, type EsfMap, type MapInput, type MapPayload, type MapRow, type MapValue } from '@/lib/esf/maps';
@@ -12,11 +12,13 @@ import { esfReferenceItems } from '@/lib/esf/reference-items';
 import { EsfReceiptField } from '@/components/esf-receipt-field';
 import { EsfPaperReport } from '@/components/esf-paper-report';
 import { buildMapPaper } from '@/lib/esf/paper';
+import { mapPayloadChanged } from '@/lib/esf/map-editor-state';
 
 function MapFields({ fields, values, change, disabled, receipt }: { fields: EsfField[]; values: Record<string, MapValue>; change: (key: string, value: MapValue) => void; disabled: boolean; receipt?: { mapId?: string; teamId: string; version: number } }) {
-  return <div className="esf-map-fields">{fields.filter(f => f.type !== 'calculated').map(f => {
+  const fieldGroup = useId();
+  return <div className="esf-map-fields">{fields.filter(f => f.type !== 'calculated').map((f, index) => {
     const numeric = ['integer', 'decimal'].includes(f.type), na = values[f.key] === 'Não se aplica';
-    return <div className="v2-field" key={f.key}><label><span>{f.label}</span>{f.type === 'attachment' ? null : f.options ? <select aria-label={f.label} disabled={disabled} value={String(values[f.key] ?? '')} onChange={e => change(f.key, e.target.value)}><option value="">Não informado</option>{f.options.map(o => <option key={o}>{o}</option>)}</select> : <input aria-label={f.label} type={numeric ? 'number' : f.type === 'date' ? 'date' : 'text'} inputMode={numeric ? 'decimal' : undefined} min={numeric ? 0 : undefined} max={numeric ? 1000000 : undefined} step={numeric ? f.type === 'integer' ? 1 : '0.001' : undefined} maxLength={numeric || f.type === 'date' ? undefined : 1000}
+    return <div className="v2-field" key={f.key}><label><span>{f.label}</span>{f.type === 'attachment' ? null : f.options ? <select aria-label={f.label} autoComplete="off" name={`esf-${fieldGroup}-${index}`} disabled={disabled} value={String(values[f.key] ?? '')} onChange={e => change(f.key, e.target.value)}><option value="">Não informado</option>{f.options.map(o => <option key={o}>{o}</option>)}</select> : <input aria-label={f.label} autoComplete="off" name={`esf-${fieldGroup}-${index}`} type={numeric ? 'number' : f.type === 'date' ? 'date' : 'text'} inputMode={numeric ? 'decimal' : undefined} min={numeric ? 0 : undefined} max={numeric ? 1000000 : undefined} step={numeric ? f.type === 'integer' ? 1 : '0.001' : undefined} maxLength={numeric || f.type === 'date' ? undefined : 1000}
       placeholder={['name', 'motherName', 'patientName', 'professionalId'].includes(f.key) ? '[SINTÉTICO] Nome de teste' : 'Não informado'} disabled={disabled || na} value={na ? '' : values[f.key] ?? ''} onChange={e => change(f.key, numeric ? e.target.value === '' ? null : Number(e.target.value) : e.target.value)} />}</label>
       {f.type === 'attachment' && receipt && <EsfReceiptField {...receipt} disabled={disabled} value={String(values[f.key] ?? '')} change={id => change(f.key, id)} />}
       {numeric && <label className="esf-map-na"><input type="checkbox" disabled={disabled} checked={na} onChange={e => change(f.key, e.target.checked ? 'Não se aplica' : null)} />Não se aplica a {f.label.toLowerCase()}</label>}
@@ -31,7 +33,8 @@ export function EsfMapEditor({ form, initial, workspace }: { form: string; initi
   const router = useRouter();
   const [map, setMap] = useState<EsfMap | null>(initial.current);
   const [payload, setPayload] = useState<MapPayload>(initial.current?.payload ?? blankMap(form, workspace.userName));
-  const [competency, setCompetency] = useState(initial.current?.competency ?? localEsfDate().slice(0, 7));
+  const [baselineCompetency] = useState(initial.current?.competency ?? localEsfDate().slice(0, 7));
+  const [competency, setCompetency] = useState(baselineCompetency);
   const [sectionId, setSectionId] = useState(def.sections[0].id);
   const [row, setRow] = useState<MapRow | null>(null);
   const [values, setValues] = useState<Record<string, MapValue>>({});
@@ -42,7 +45,8 @@ export function EsfMapEditor({ form, initial, workspace }: { form: string; initi
   const [conflict, setConflict] = useState<EsfMap | null>(null);
   const [newId] = useState(() => crypto.randomUUID());
   const pending = useRef<{ fingerprint: string; input: MapInput } | null>(null);
-  const dirty = JSON.stringify(map?.payload ?? blankMap(form, workspace.userName)) !== JSON.stringify(payload) || Object.keys(values).length > 0;
+  const baselinePayload = map?.payload ?? blankMap(form, workspace.userName);
+  const dirty = mapPayloadChanged(baselinePayload, payload) || competency !== (map?.competency ?? baselineCompetency) || Object.keys(values).length > 0;
   const path = `/formularios-esf/${form}`;
   const section = def.sections.find(s => s.id === sectionId)!;
   const rows = payload.sections[sectionId] ?? [];
@@ -80,7 +84,7 @@ export function EsfMapEditor({ form, initial, workspace }: { form: string; initi
   const reportMap: EsfMap = { id: map?.id ?? newId, template_id: form, team_id: initial.teamId, competency, payload, version: map?.version ?? 0, revision: map?.revision ?? 1, status: map?.status ?? 'OPEN' };
   return <div inert={!ready}>
     <section className="v2-panel v2-section"><h2>Homologação com dados sintéticos</h2><p className="v2-alert">Não informe dados reais. Campos nominais exigem o prefixo [SINTÉTICO]. Este mapa não movimenta o estoque operacional, não calcula doses e não aprova regras institucionais.</p>
-      <form action={path} className="v2-toolbar"><label className="v2-field"><span>Equipe ESF</span><select aria-label="Equipe ESF" name="team" defaultValue={initial.teamId}>{initial.teams.map(t => <option value={t.id} key={t.id}>{t.name}</option>)}</select></label><button className="v2-secondary" disabled={dirty || busy}>Trocar equipe / abrir novo mapa</button></form>
+      <form action={path} autoComplete="off" className="v2-toolbar"><label className="v2-field"><span>Equipe ESF</span><select aria-label="Equipe ESF" name="team" defaultValue={initial.teamId}>{initial.teams.map(t => <option value={t.id} key={t.id}>{t.name}</option>)}</select></label><button className="v2-secondary" disabled={dirty || busy}>Trocar equipe / abrir novo mapa</button></form>
       <p>{workspace.unitName} · {teamName} · {map ? `${mapStatusLabels[map.status]} · versão ${map.version}` : 'Novo mapa não salvo'}</p>
       {!initial.teamId && <p role="alert">Sem equipe ou permissão para este formulário. Cadastre uma equipe sintética autorizada antes de lançar dados.</p>}
     </section>
@@ -93,7 +97,7 @@ export function EsfMapEditor({ form, initial, workspace }: { form: string; initi
         setPayload(p => ({ ...p, sections: { ...p.sections, records: esfReferenceItems[form].map(item => ({ id: crypto.randomUUID(), values: { sourceLine: item.line, itemId: item.label } })) } })); setMessage('Linhas documentais preparadas sem quantidades. Confira unidades, lotes e saldos antes de confirmar.');
       }}>Carregar linhas do modelo sem quantidades</button></>}
       {def.sections.length > 1 && <label className="v2-field"><span>Bloco do formulário</span><select aria-label="Bloco do formulário" disabled={Object.keys(values).length > 0} value={sectionId} onChange={e => { setSectionId(e.target.value); setRow(null); setValues({}); setPage(1); }}>{def.sections.map(s => <option value={s.id} key={s.id}>{s.title}</option>)}</select></label>}
-      {editable && <form onSubmit={addRow}><h3>{row ? 'Editar linha preparada' : 'Adicionar lançamento'}</h3>
+      {editable && <form autoComplete="off" onSubmit={addRow}><h3>{row ? 'Editar linha preparada' : 'Adicionar lançamento'}</h3>
       {esfReferenceItems[form]&&<label className="v2-field"><span>Item do formulário revisado</span><select aria-label="Item do formulário revisado" disabled={busy} value={esfReferenceItems[form].find(item=>item.label===values.itemId&&item.line===values.sourceLine)?.line??''} onChange={e=>{const item=esfReferenceItems[form].find(item=>item.line===e.target.value);if(item)setValues(v=>({...v,itemId:item.label,sourceLine:item.line}));}}><option value="">Selecionar item impresso ou informar outro abaixo</option>{esfReferenceItems[form].map(item=><option value={item.line} key={item.line}>{item.line} · {item.label}</option>)}</select><small>Vincula à linha exata do papel. Referência documental, sem aprovação institucional do catálogo. Outros itens serão identificados separadamente na impressão.</small></label>}
       <MapFields fields={section.fields} values={values} disabled={busy} receipt={{ mapId: map?.id, teamId: initial.teamId, version: map?.version ?? 0 }} change={(key, value) => setValues(v => ({ ...v, [key]: value }))} />
       <dl className="esf-report-meta">{section.fields.filter(f => f.type === 'calculated').map(f => <div key={f.key}><dt>{f.label}</dt><dd>{displayMapValue(calculatedRow(form, section.id, values)[f.key])}</dd></div>)}</dl>
@@ -103,6 +107,11 @@ export function EsfMapEditor({ form, initial, workspace }: { form: string; initi
       <nav aria-label="Paginação dos lançamentos" className="v2-pagination"><button className="v2-secondary" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Anterior</button><span>Página {page} de {Math.max(1, Math.ceil(rows.length / 25))}</span><button className="v2-secondary" disabled={page * 25 >= rows.length} onClick={() => setPage(p => p + 1)}>Próxima</button></nav>
     </section>
     <section className="v2-panel v2-section"><h2>Persistência e relatório</h2><p>{dirty ? 'Os dados desta tela ainda não atualizam o PDF salvo.' : 'O PDF será preenchido com a versão confirmada no servidor.'}</p>
+      {editable && dirty && !conflict && <button type="button" className="v2-secondary" disabled={busy} onClick={() => {
+        if (!window.confirm('Descartar somente as alterações não confirmadas desta tela? Mapas salvos, comprovantes enviados e rascunhos no cofre serão preservados.')) return;
+        setPayload(structuredClone(baselinePayload)); setCompetency(map?.competency ?? baselineCompetency); setRow(null); setValues({}); setReason(''); pending.current = null;
+        setMessage('Alterações locais descartadas. Nenhum registro salvo ou rascunho do cofre foi excluído.');
+      }}>Descartar alterações não confirmadas</button>}
       {editable && <button className="v2-button" disabled={busy} onClick={() => command('save')}>Confirmar mapa no servidor</button>}
       {map && !dirty && permission('exportar') && <a className="v2-secondary" href={`${path}/impressao?team=${initial.teamId}&map=${map.id}`} target="_blank" rel="noreferrer">Abrir formulário preenchido / PDF</a>}
       {map && !dirty && <><label className="v2-field"><span>Justificativa de devolução / reabertura</span><textarea maxLength={500} value={reason} onChange={e => setReason(e.target.value)} /></label><div className="dialog-actions">
