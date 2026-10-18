@@ -1,0 +1,18 @@
+import {beforeEach,afterEach,it,expect,vi} from 'vitest';
+const mocks=vi.hoisted(()=>({actor:vi.fn(),workspace:vi.fn(),rpc:vi.fn()}));
+vi.mock('@/lib/server/supabase',()=>({requireActor:mocks.actor,isDemoMode:()=>false,createSupabaseServerClient:async()=>({rpc:mocks.rpc})}));
+vi.mock('@/lib/server/workspace',()=>({loadWorkspaceContext:mocks.workspace}));
+import {POST} from './route';
+const id='00000000-0000-4000-8000-000000000001';
+const body={organizationId:id,unitId:id,entityId:id,operationId:id,deviceId:id,resource:'meetings',command:'complete',expectedVersion:1,expectedRecord:{id,status:'IN_PROGRESS'},expectedRelated:{agenda:[],participants:[],referrals:[]},payload:{minutes:'Ata exclusivamente sintética.'}};
+const request=(change={})=>new Request('https://staging.example/api/v1/offline/transitions',{method:'POST',headers:{'content-type':'application/json','x-device-id':id},body:JSON.stringify({...body,...change})});
+beforeEach(()=>{vi.clearAllMocks();vi.stubEnv('SGC_ENVIRONMENT','staging');mocks.actor.mockResolvedValue({id});mocks.workspace.mockResolvedValue({organizationId:id,unitId:id,enabledModules:['reunioes']});mocks.rpc.mockResolvedValue({data:{status:'confirmed',result:{id}}});});
+afterEach(()=>vi.unstubAllEnvs());
+it('does not enable production',async()=>{vi.stubEnv('SGC_ENVIRONMENT','production');expect((await POST(request())).status).toBe(403);expect(mocks.rpc).not.toHaveBeenCalled();});
+it('requires an authenticated actor',async()=>{mocks.actor.mockResolvedValue(null);expect((await POST(request())).status).toBe(401);});
+it('rejects broadening the selected unit',async()=>{expect((await POST(request({unitId:null}))).status).toBe(403);expect(mocks.rpc).not.toHaveBeenCalled();});
+it('checks the module feature gate',async()=>{mocks.workspace.mockResolvedValue({organizationId:id,unitId:id,enabledModules:[]});expect((await POST(request())).status).toBe(403);});
+it('rejects incomplete minutes without contacting the database',async()=>{expect((await POST(request({payload:{minutes:'x'}}))).status).toBe(422);expect(mocks.rpc).not.toHaveBeenCalled();});
+it('uses only the additive RPC and never caches its result',async()=>{const response=await POST(request());expect(response.status).toBe(200);expect(mocks.rpc).toHaveBeenCalledWith('staging_offline_transition',{p_request:body});expect(response.headers.get('cache-control')).toBe('no-store');});
+it('returns preserved conflicts as 409, not a success acknowledgement',async()=>{mocks.rpc.mockResolvedValue({data:{status:'conflict',server:{record:{id,status:'COMPLETED'}}}});const response=await POST(request());expect(response.status).toBe(409);expect((await response.json()).server.record.status).toBe('COMPLETED');});
+it('preserves a busy operation as retryable rather than falsely confirming it',async()=>{mocks.rpc.mockResolvedValue({error:{code:'55P03'}});expect((await POST(request())).status).toBe(503);});

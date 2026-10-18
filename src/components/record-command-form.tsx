@@ -1,9 +1,10 @@
 "use client";
-import { useContext, useId, useRef, useState } from "react";
+import { useContext, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DraftTools, DraftWorkspace } from "./draft-tools";
 import { OfflineVault } from "@/lib/offline/vault";
 import { queueWork } from "@/lib/offline/work";
+import { criticalTransition } from '@/lib/offline/transitions';
 
 export type CommandField = { name: string; label: string; type?: "text" | "textarea" | "number" | "date" | "datetime-local" | "checkbox"; options?: { value: string; label: string }[]; required?: boolean; defaultValue?: string; min?: number; max?: number; minLength?: number; pattern?: string };
 export type CommandFormProps = { title: string; endpoint: string; expectedVersion?: number; fields?: CommandField[]; payload?: Record<string, unknown>; transform?: (values: Record<string, unknown>) => Record<string, unknown>; method?: "POST" | "PUT"; redirectResource?: string; children?: React.ReactNode; onSuccess?: (result: Record<string, unknown>) => void; disabled?: boolean; extraDraft?:{value:string;restore:(value:string)=>void} };
@@ -20,6 +21,10 @@ export function CommandForm({ title, endpoint, expectedVersion, fields = [], pay
   const [message, setMessage] = useState("");
   const [failed, setFailed] = useState(false);
   const [conflict, setConflict] = useState(false);
+  const [online,setOnline]=useState(true);
+  const [criticalConfirmed,setCriticalConfirmed]=useState(false);
+  const critical=criticalTransition(endpoint);
+  useEffect(()=>{const update=()=>setOnline(navigator.onLine);update();window.addEventListener('online',update);window.addEventListener('offline',update);return()=>{window.removeEventListener('online',update);window.removeEventListener('offline',update);};},[]);
   function restore(saved:Record<string,string>) {
     if (saved.__extra && extraDraft) extraDraft.restore(saved.__extra);
     setEdits(Object.fromEntries(fields.map(field=>[field.name,saved[field.name] ?? field.defaultValue ?? ''])));
@@ -44,6 +49,7 @@ export function CommandForm({ title, endpoint, expectedVersion, fields = [], pay
       const body = { ...payload, ...values, operationId: operation.current, ...(expectedVersion !== undefined ? { expectedVersion } : {}) };
       pendingBody.current ??= JSON.stringify(transform ? transform(body) : body);
       if (!navigator.onLine) {
+        if(critical&&!criticalConfirmed)throw new Error('Confirme a preparação da transição. Ela só terá efeito após validação do servidor.');
         if(!workspace||!OfflineVault.active)throw new Error('Sem conexão. Desbloqueie o cofre e salve o rascunho antes de preparar o envio.');
         await queueWork(OfflineVault.active,workspace,title,endpoint,method,JSON.parse(pendingBody.current));
         setMessage('Aguardando envio. Operação cifrada neste dispositivo; a transição só terá efeito após confirmação do servidor.');return;
@@ -73,6 +79,7 @@ export function CommandForm({ title, endpoint, expectedVersion, fields = [], pay
           : <input id={`${prefix}-${field.name}`} name={field.name} type={field.type ?? "text"} required={field.required} value={field.type==='checkbox' ? undefined : fieldValue(field)} checked={field.type==='checkbox' ? fieldValue(field)==='true' : undefined} onChange={e=>setEdits({...edits,[field.name]:field.type==='checkbox'?String(e.target.checked):e.target.value})} min={field.min} max={field.max} minLength={field.minLength} pattern={field.pattern} step={field.type === "number" ? "any" : undefined} />}
     </label>)}
     {children}
+    {!online&&critical&&<label><input type="checkbox" checked={criticalConfirmed} onChange={e=>setCriticalConfirmed(e.target.checked)}/>Confirmo a preparação offline; esta transição só terá efeito após autorização e confirmação do servidor.</label>}
     {message && <p id={`${prefix}-message`} role={failed ? "alert" : "status"} className={failed ? "form-error" : "form-success"}>{message}</p>}
     {conflict && <button type="button" className="secondary-button" onClick={() => router.refresh()}>Consultar versão atual</button>}
     <button type="submit" className="primary-button" disabled={disabled || busy || conflict}>{busy ? "Confirmando…" : title}</button>

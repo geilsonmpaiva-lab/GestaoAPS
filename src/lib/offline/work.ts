@@ -1,13 +1,16 @@
 "use client";
 import { OfflineVault } from "./vault";
 import type { WorkspaceContext } from "@/lib/server/workspace";
+import type {DetailData} from '@/lib/server/record-detail';
+import {criticalTransition,transitionSnapshot,type TransitionEnvelope} from './transitions';
 
-export type PendingWork={id:string;title:string;scope:{userId:string;organizationId:string;unitId:string|null};endpoint:string;method:"POST"|"PUT";body:Record<string,unknown>;status:"pending"|"confirmed"|"failed"|"conflict";error?:string;server?:unknown;result?:Record<string,unknown>;createdAt:string;resolutionAttempt?:Record<string,unknown>;resolutionStrategy?:string};
+export type PendingWork={id:string;title:string;scope:{userId:string;organizationId:string;unitId:string|null};endpoint:string;method:"POST"|"PUT";body:Record<string,unknown>;status:"pending"|"confirmed"|"failed"|"conflict";error?:string;server?:unknown;result?:Record<string,unknown>;createdAt:string;resolutionAttempt?:Record<string,unknown>;resolutionStrategy?:string;transition?:TransitionEnvelope};
 // Enable queued mutations only after retry/conflict integration qualification.
 // Other command forms keep encrypted drafts for explicit online confirmation.
 const idempotentCommands:Record<string,string[]>={actions:['update']};
 export function allowedOfflineCommand(endpoint:string,method:string){
   if(method!=='POST')return false;
+  if(criticalTransition(endpoint))return true;
   if(/^\/api\/v1\/(knowledge|protocols|indicators|action-plans|meetings)$/.test(endpoint))return true;
   const match=endpoint.match(/^\/api\/v1\/([a-z-]+)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/([a-z-]+)$/i);
   return Boolean(match&&idempotentCommands[match[1]]?.includes(match[2]));
@@ -47,12 +50,25 @@ export async function queueWork(vault:OfflineVault,workspace:WorkspaceContext,ti
   const existing=await vault.getRecord<PendingWork>(key);
   const pending:PendingWork={id,title,scope:{userId:workspace.userId,organizationId:workspace.organizationId,unitId:workspace.unitId},endpoint,method,body:{...body,operationId:id},status:'pending',createdAt:new Date().toISOString()};
   if(existing){if(JSON.stringify(existing.body)!==JSON.stringify(pending.body))throw new Error('A operação pendente tem outros dados. Preserve-a antes de preparar outra.');return existing;}
+  const transition=criticalTransition(endpoint);
+  if(transition){
+    const parsed=transition.schema.safeParse(pending.body);
+    if(!parsed.success)throw new Error('Revise os campos obrigatórios desta transição antes de prepará-la.');
+    const snapshot=await vault.getRecord<{detail:DetailData}>(`snapshot:${workspace.userId}:${workspace.organizationId}:${workspace.unitId??'org'}:${transition.resource}:${transition.entityId}`);
+    if(!snapshot)throw new Error('Disponibilize o detalhe desta versão ou registro no dispositivo antes de preparar a transição.');
+    const saved=transitionSnapshot(snapshot.detail);
+    const {operationId,expectedVersion,...payload}=parsed.data;
+    pending.transition={organizationId:workspace.organizationId,unitId:workspace.unitId,entityId:transition.entityId,resource:transition.resource,command:transition.command,operationId,expectedVersion,deviceId:vault.deviceId,expectedRecord:saved.record,expectedRelated:saved.related,payload};
+  }
   await vault.putRecord(key,pending);return pending;
 }
 export async function synchronizeWork(vault:OfflineVault,workspace:WorkspaceContext){
   await verifyVault(vault,workspace);
-  const rows=await vault.listRecords<PendingWork>(workPrefix(workspace));
-  const entityKey=(item:PendingWork)=>item.endpoint.match(/^\/api\/v1\/[^/]+\/[0-9a-f-]{36}/i)?.[0];
+  const rows=(await vault.listRecords<PendingWork>(workPrefix(workspace))).sort((a,b)=>a.value.createdAt.localeCompare(b.value.createdAt)||a.id.localeCompare(b.id));
+  const entityKey=(item:PendingWork)=>{
+    const transition=criticalTransition(item.endpoint);
+    return transition?`/api/v1/${transition.resource}/${transition.entityId}`:item.endpoint.match(/^\/api\/v1\/[^/]+\/[0-9a-f-]{36}/i)?.[0];
+  };
   const blocked=new Set(rows.filter(row=>row.value.status==='conflict').map(row=>entityKey(row.value)).filter(Boolean));
   for(const {id:key,value:item} of rows){
     if(item.status==='confirmed'||item.status==='conflict')continue;
@@ -60,22 +76,40 @@ export async function synchronizeWork(vault:OfflineVault,workspace:WorkspaceCont
     await vault.assertIdentity(workspace.userId,workspace.organizationId);
     if(item.scope.unitId!==workspace.unitId||item.scope.userId!==workspace.userId||!allowedOfflineCommand(item.endpoint,item.method))throw new Error('Operação fora do contexto autorizado.');
     // Keep the exact operation/body on every retry, including a lost response.
-    const response=await offlineFetch(item.endpoint,{method:item.method,headers:{'content-type':'application/json','x-device-id':vault.deviceId},body:JSON.stringify(item.body)});
+    if(criticalTransition(item.endpoint)&&!item.transition)throw new Error('Transição antiga sem snapshot. Recupere o rascunho e prepare uma operação com a versão autorizada.');
+    const response=await offlineFetch(item.transition?'/api/v1/offline/transitions':item.endpoint,{method:item.method,headers:{'content-type':'application/json','x-device-id':vault.deviceId},body:JSON.stringify(item.transition??item.body)});
     const result=await response.json();
     if(response.status===401||response.status===403){await vault.invalidateAuthorization();throw new Error('Acesso não autorizado. Fila cifrada preservada; entre novamente para revisar suas permissões.');}
     if(response.status===409){
       blocked.add(entityKey(item));
       const match=item.endpoint.match(/^\/api\/v1\/([^/]+)\/([^/]+)\//);
-      let server:unknown=null;
-      if(match){const current=await offlineFetch(`/api/v1/${match[1]}/${match[2]}`);if(current.ok)server=await current.json();}
-      await vault.putRecord(key,{...item,status:'conflict',error:'Conflito: compare as duas versões antes de preparar uma nova operação.',server});
+      let server:unknown=result.server??null;
+      if(!item.transition&&match){const current=await offlineFetch(`/api/v1/${match[1]}/${match[2]}`);if(current.ok)server=await current.json();}
+      await vault.putRecord(key,{...item,status:'conflict',error:'Conflito: compare as duas versões antes de preparar uma nova operação.',server,result});
       continue;
     }
     // Demo acknowledgements must never claim durable confirmation.
-    await vault.putRecord(key,{...item,status:response.ok&&result.mode!=='demo'?'confirmed':'failed',result,error:response.ok&&result.mode!=='demo'?undefined:result.mode==='demo'?'Demonstração: nenhum dado foi gravado.':'Falha de envio. Dados preservados para nova tentativa.'});
+    const confirmed=response.ok&&result.mode!=='demo'&&(!item.transition||['confirmed','resolved'].includes(result.status));
+    await vault.putRecord(key,{...item,status:confirmed?'confirmed':'failed',result,error:confirmed?undefined:result.mode==='demo'?'Demonstração: nenhum dado foi gravado.':'Falha de envio. Dados preservados para nova tentativa.'});
     if(!response.ok&&response.status>=500)break;
   }
   return vault.listRecords<PendingWork>(workPrefix(workspace));
+}
+
+export async function resolveTransitionWork(vault:OfflineVault,workspace:WorkspaceContext,item:PendingWork,decision:'KEEP_SERVER'|'RETRY',justification:string){
+ await verifyVault(vault,workspace);
+ if(item.status!=='conflict'||!item.transition)throw new Error('Conflito de transição não encontrado.');
+ const server=item.server as {record?:Record<string,unknown>;related?:Record<string,Record<string,unknown>[]>}|undefined;
+ if(!server?.record||!server.related)throw new Error('Snapshot do servidor indisponível. Reconecte para revisar.');
+ const attempt=item.resolutionAttempt??{...item.transition,operationId:crypto.randomUUID(),sourceOperationId:item.result?.operationId??item.id,decision,justification,expectedRecord:server.record,expectedRelated:server.related,expectedVersion:Number(server.record.version??server.record.version_number)};
+ const key=workPrefix(workspace)+item.id;
+ await vault.putRecord(key,{...item,resolutionAttempt:attempt});
+ const response=await offlineFetch('/api/v1/offline/transitions',{method:'POST',headers:{'content-type':'application/json','x-device-id':vault.deviceId},body:JSON.stringify(attempt)});
+ const result=await response.json();
+ if(response.status===401||response.status===403){await vault.invalidateAuthorization();throw new Error('Resolução não autorizada. Versões preservadas.');}
+ if(response.status===409){await vault.putRecord(key,{...item,resolutionAttempt:undefined,result,server:result.server,error:'O servidor mudou novamente. Revise as duas versões.'});throw new Error('A transição continua em conflito. Revise novamente.');}
+ if(!response.ok||result.status!=='resolved'||result.mode==='demo')throw new Error('Resolução ainda não confirmada. Tentativa preservada.');
+ await vault.putRecord(key,{...item,status:'confirmed',resolutionAttempt:attempt,result,resolutionStrategy:decision,error:'Resolução confirmada e auditada. A operação original permanece cifrada.'});
 }
 
 export async function resolveActionWork(vault:OfflineVault,workspace:WorkspaceContext,item:PendingWork,strategy:'KEEP_SERVER'|'KEEP_CLIENT',justification:string){

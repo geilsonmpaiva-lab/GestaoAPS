@@ -7,8 +7,37 @@ beforeEach(()=>{vi.unstubAllGlobals();vi.stubGlobal('navigator',{userAgent:'test
 describe('offline allowlist and retry integrity',()=>{
   it.each(['/api/v1/admin/invites','https://evil.test/api/v1/knowledge','/api/v1/safety-events','/api/v1/knowledge?extra=x','/api/v1/knowledge/../../admin/invites'])('rejects destination %s',endpoint=>expect(allowedOfflineCommand(endpoint,'POST')).toBe(false));
   it('rejects non-idempotent attendance writes and accepts explicit MVP commands',()=>{expect(allowedOfflineCommand('/api/v1/knowledge','PUT')).toBe(false);expect(allowedOfflineCommand('/api/v1/actions/00000000-0000-4000-8000-000000000001/update','POST')).toBe(true);});
-  it('keeps critical transitions as drafts until their conflict adapters are qualified',()=>{expect(allowedOfflineCommand('/api/v1/protocols/00000000-0000-4000-8000-000000000001/publish','POST')).toBe(false);expect(allowedOfflineCommand('/api/v1/actions/00000000-0000-4000-8000-000000000001/complete','POST')).toBe(false);});
+  it('accepts only explicit critical transition adapters',()=>{expect(allowedOfflineCommand('/api/v1/protocols/00000000-0000-4000-8000-000000000001/publish','POST')).toBe(true);expect(allowedOfflineCommand('/api/v1/actions/00000000-0000-4000-8000-000000000001/complete','POST')).toBe(true);expect(allowedOfflineCommand('/api/v1/protocols/00000000-0000-4000-8000-000000000001/cancel','POST')).toBe(false);});
+  it('requires a prepared snapshot before a critical operation can enter the queue',async()=>{
+    const vault={deviceId:'device',assertIdentity:vi.fn(),getRecord:vi.fn().mockResolvedValue(null),putRecord:vi.fn()} as unknown as OfflineVault;
+    await expect(queueWork(vault,workspace,'Publicar','/api/v1/protocols/00000000-0000-4000-8000-000000000001/publish','POST',{expectedVersion:1})).rejects.toThrow('Disponibilize o detalhe');
+    expect(vault.putRecord).not.toHaveBeenCalled();
+  });
+  it('captures the prepared version and relations without executing the transition',async()=>{
+    const id='00000000-0000-4000-8000-000000000001';
+    const fetcher=vi.fn();vi.stubGlobal('fetch',fetcher);
+    const detail={resource:'protocol-versions',record:{id,status:'APROVADO',version_number:1},related:{forms:[{id:'form'}],bindings:[]}};
+    const vault={deviceId:'device',assertIdentity:vi.fn(),getRecord:vi.fn((key:string)=>Promise.resolve(key.startsWith('snapshot:')?{detail}:null)),putRecord:vi.fn()} as unknown as OfflineVault;
+    const queued=await queueWork(vault,workspace,'Publicar',`/api/v1/protocols/${id}/publish`,'POST',{expectedVersion:1});
+    expect(queued.status).toBe('pending');expect(queued.transition?.expectedRecord).toEqual(detail.record);expect(queued.transition?.expectedRelated.forms).toEqual([{id:'form'}]);expect(fetcher).not.toHaveBeenCalled();
+  });
+  it.each(['conflict','rejected','confirmed'])('acknowledges critical receipts only when explicitly confirmed: %s',async status=>{
+    let saved={id:'op',title:'Concluir',scope:{userId:'user',organizationId:'org',unitId:'unit'},endpoint:'/api/v1/actions/00000000-0000-4000-8000-000000000001/complete',method:'POST',body:{operationId:'op'},status:'pending',createdAt:'2026-01-01',transition:{operationId:'op'}} as unknown as import('./work').PendingWork;
+    const fetcher=vi.fn(async(url:string)=>url.endsWith('/context')?Response.json(workspace):url.endsWith('/register')?Response.json({verifiedAt:new Date().toISOString()}):Response.json({status,server:{record:{id:'entity'},related:{}}},{status:status==='conflict'?409:200}));vi.stubGlobal('fetch',fetcher);
+    const vault={deviceId:'device',identity:{organizationId:'org'},verificationContext:vi.fn().mockResolvedValue(workspace),assertIdentity:vi.fn(),markOnlineVerification:vi.fn(),listRecords:vi.fn(async()=>[{id:'key',value:saved}]),putRecord:vi.fn(async(_key:string,value:typeof saved)=>{saved=value;})} as unknown as OfflineVault;
+    await synchronizeWork(vault,workspace);
+    expect(fetcher).toHaveBeenCalledWith('/api/v1/offline/transitions',expect.anything());expect(saved.status).toBe(status==='confirmed'?'confirmed':status==='conflict'?'conflict':'failed');
+  });
   it.each(['indicators/00000000-0000-4000-8000-000000000001/targets','action-plans/00000000-0000-4000-8000-000000000001/actions','meetings/00000000-0000-4000-8000-000000000001/agenda','meetings/00000000-0000-4000-8000-000000000001/referrals'])('keeps non-idempotent %s as drafts',path=>expect(allowedOfflineCommand(`/api/v1/${path}`,'POST')).toBe(false));
+  it('blocks both protocol endpoint aliases when their version has a local conflict',async()=>{
+    const id='00000000-0000-4000-8000-000000000001';
+    const base={scope:{userId:'user',organizationId:'org',unitId:'unit'},method:'POST',body:{},createdAt:'2026-01-01'};
+    const rows=[{id:'conflict',value:{...base,endpoint:`/api/v1/protocol-versions/${id}/submit-review`,status:'conflict'}},{id:'pending',value:{...base,endpoint:`/api/v1/protocols/${id}/publish`,status:'pending'}}];
+    const fetcher=vi.fn(async(url:string)=>url.endsWith('/context')?Response.json(workspace):Response.json({verifiedAt:new Date().toISOString()}));vi.stubGlobal('fetch',fetcher);
+    const vault={deviceId:'device',identity:{organizationId:'org'},verificationContext:vi.fn().mockResolvedValue(workspace),assertIdentity:vi.fn(),markOnlineVerification:vi.fn(),listRecords:vi.fn().mockResolvedValue(rows),putRecord:vi.fn()} as unknown as OfflineVault;
+    await synchronizeWork(vault,workspace);
+    expect(fetcher).toHaveBeenCalledTimes(2);expect(vault.putRecord).not.toHaveBeenCalled();
+  });
   it('does not replace an existing operation with different data',async()=>{
     const vault={assertIdentity:vi.fn(),getRecord:vi.fn().mockResolvedValue({body:{operationId:'same',title:'old'}}),putRecord:vi.fn()} as unknown as OfflineVault;
     await expect(queueWork(vault,workspace,'Create','/api/v1/knowledge','POST',{operationId:'same',title:'changed'})).rejects.toThrow('outros dados');
