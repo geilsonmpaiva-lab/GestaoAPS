@@ -1,11 +1,13 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import {applyStagingSso,artifactRoot} from './staging-browser';
 type Account = { email: string; password: string; role: string };
 const file = process.env.SGC_STAGING_ACCOUNTS_FILE;
 if (!file) throw new Error("Arquivo privado de contas sintéticas obrigatório.");
 const accounts: Account[] = JSON.parse(readFileSync(file, "utf8")).accounts;
 
 test("cadastro autenticado persiste após recarga na organização sintética", async ({ page }) => {
+  await applyStagingSso(page.context());
   const account = accounts.find(item => item.role === "ADMIN_SISTEMA")!;
   await page.goto("/login");
   await page.getByLabel("E-mail", { exact: true }).fill(account.email);
@@ -34,5 +36,5 @@ test("cadastro autenticado persiste após recarga na organização sintética", 
   await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
-  await page.screenshot({ path: "test-results/staging/cadastro-persistido.png", fullPage: true });
+  await page.screenshot({ path: `${artifactRoot}/cadastro-persistido.png`, fullPage: true });
 });

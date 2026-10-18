@@ -2,11 +2,12 @@ import { test, expect, chromium, type Page } from '@playwright/test';
 import { mkdtempSync,readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import {applyStagingSso,artifactRoot} from './staging-browser';
 test.use({serviceWorkers:'allow'});
 const file=process.env.SGC_STAGING_ACCOUNTS_FILE;
 if(!file)throw new Error('Arquivo de contas sintéticas obrigatório.');
 const account=JSON.parse(readFileSync(file,'utf8')).accounts.find((a:{role:string})=>a.role==='GERENTE_UBS');
-async function login(page:Page){await page.goto('/login');await page.getByLabel('E-mail',{exact:true}).fill(account.email);await page.getByLabel('Senha',{exact:true}).fill(account.password);await page.getByRole('button',{name:'Entrar',exact:true}).click();await expect(page.getByRole('heading',{name:'Prioridades da unidade'})).toBeVisible();}
+async function login(page:Page){await applyStagingSso(page.context());await page.goto('/login');await page.getByLabel('E-mail',{exact:true}).fill(account.email);await page.getByLabel('Senha',{exact:true}).fill(account.password);await page.getByRole('button',{name:'Entrar',exact:true}).click();await expect(page.getByRole('heading',{name:'Prioridades da unidade'})).toBeVisible();}
 
 test('reinício sem rede recupera rascunho cifrado e confirma fila somente online',async({},info)=>{
   test.setTimeout(240_000);
@@ -29,6 +30,7 @@ test('reinício sem rede recupera rascunho cifrado e confirma fila somente onlin
   await context.close();
   // New browser process: no key, React state or open IndexedDB connection survives.
   context=await chromium.launchPersistentContext(profile,{baseURL,serviceWorkers:'allow'});
+  await applyStagingSso(context);
   page=await context.newPage();page.setDefaultTimeout(25_000);
   await context.setOffline(true);
   await page.goto('/offline');
@@ -114,13 +116,13 @@ test('anexo interrompido retoma após reinício e conflito de ação preserva ve
   await context.close();
   const other=await chromium.launch();const otherContext=await other.newContext({baseURL,serviceWorkers:'block'});const otherPage=await otherContext.newPage();await login(otherPage);
   const changed=await otherPage.request.post(`/api/v1/actions/${action.id}/update`,{data:{operationId:crypto.randomUUID(),expectedVersion:1,status:'EM_ANDAMENTO',percentage:60,comment:'Alteração concorrente sintética de homologação'}});expect(changed.ok()).toBeTruthy();await other.close();
-  context=await chromium.launchPersistentContext(profile,{baseURL,serviceWorkers:'allow'});await context.setOffline(true);page=await context.newPage();page.setDefaultTimeout(25_000);await page.goto('/offline');await unlockWorkbench(page);
+  context=await chromium.launchPersistentContext(profile,{baseURL,serviceWorkers:'allow'});await applyStagingSso(context);await context.setOffline(true);page=await context.newPage();page.setDefaultTimeout(25_000);await page.goto('/offline');await unlockWorkbench(page);
   await expect(page.getByText(`offline-${suffix}.csv`,{exact:false})).toBeVisible();
   await context.setOffline(false);
   await page.route('**/storage/v1/object/upload/sign/**',route=>route.abort());
   await page.getByRole('button',{name:'Sincronizar pendências'}).click();await expect(page.getByRole('status')).toContainText('Envio interrompido');
   await context.close();
-  context=await chromium.launchPersistentContext(profile,{baseURL,serviceWorkers:'allow'});page=await context.newPage();page.setDefaultTimeout(25_000);await page.goto('/offline');await unlockWorkbench(page);
+  context=await chromium.launchPersistentContext(profile,{baseURL,serviceWorkers:'allow'});await applyStagingSso(context);page=await context.newPage();page.setDefaultTimeout(25_000);await page.goto('/offline');await unlockWorkbench(page);
   page.on('request',request=>{const path=new URL(request.url()).pathname;if(path.startsWith('/api/v1/'))console.log(`Envio: ${request.method()} ${path}`);});
   page.on('response',response=>{const path=new URL(response.url()).pathname;if(path.startsWith('/api/v1/'))console.log(`Resposta: ${response.status()} ${path}`);});
   const guarded=await page.request.post(`/api/v1/actions/${action.id}/update`,{timeout:15_000,headers:{'x-device-id':deviceId},data:{operationId:crypto.randomUUID(),expectedVersion:1,percentage:30}}).catch(()=>{throw new Error('A requisição com dispositivo não respondeu no tempo esperado. Credenciais omitidas.');});
@@ -157,7 +159,7 @@ test('revogação de dispositivo sintético bloqueia reconexão e mantém pendê
   const registration=await page.request.post('/api/v1/devices/register',{data:{deviceId:device.deviceId,organizationId:device.organizationId,label,platform:'Teste sintético de revogação'}});expect(registration.ok()).toBeTruthy();
   await page.goto('/offline');await unlockWorkbench(page);
   // The external test operator revokes only this newly created synthetic ID.
-  writeFileSync('test-results/staging/revocation-device.json',JSON.stringify({deviceId:device.deviceId,userId:device.userId,organizationId:device.organizationId,label,createdForThisTest:true}));
+  writeFileSync(`${artifactRoot}/revocation-device.json`,JSON.stringify({deviceId:device.deviceId,userId:device.userId,organizationId:device.organizationId,label,createdForThisTest:true}));
   console.log('Dispositivo sintético aguardando revogação controlada.');
   await expect(page.getByRole('button',{name:'Desbloquear cofre',exact:true})).toBeVisible({timeout:100_000});
   await expect(page.getByRole('status')).toContainText(/bloqueado|autorização/);

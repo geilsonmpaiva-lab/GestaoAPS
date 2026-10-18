@@ -1,11 +1,13 @@
 import {test,expect,type Page,type BrowserContext} from '@playwright/test';
 import {readFileSync,writeFileSync} from 'node:fs';
+import {applyStagingSso,artifactRoot} from './staging-browser';
 const file=process.env.SGC_STAGING_ACCOUNTS_FILE;
 if(!file)throw new Error('Contas sintéticas obrigatórias.');
 const accounts: Array<{email:string;password:string;role:string}>=JSON.parse(readFileSync(file,'utf8')).accounts;
 const org='362db1a9-bfdd-4334-9436-46b1c0117eab',unit='32747837-0478-49b4-be4d-f96d5e120c1d';
 const section=(page:Page,title:string)=>page.locator('section').filter({has:page.getByRole('heading',{name:title,exact:true})});
 async function login(page:Page,role:string){
+ await applyStagingSso(page.context());
  const account=accounts.find(a=>a.role===role)!;await page.goto('/login');await page.getByLabel('E-mail',{exact:true}).fill(account.email);await page.getByLabel('Senha',{exact:true}).fill(account.password);await page.getByRole('button',{name:'Entrar',exact:true}).click();await expect(page.getByRole('heading',{name:'Prioridades da unidade'})).toBeVisible();
  if(role==='ADMIN_SISTEMA'){
   const scope=page.getByRole('combobox',{name:'Unidade de trabalho'});
@@ -66,7 +68,7 @@ test('transições críticas persistem com snapshots reais, anexos e reenvio sem
  await prepare(manager,managerContext,'referrals',referral.id,'Converter encaminhamento em ação');operations.push(await synchronize(manager,managerContext,'Converter encaminhamento em ação'));
  await prepare(manager,managerContext,'meetings',meeting.id,'Registrar ata e encerrar reunião',{'Ata: discussões, decisões e encaminhamentos':'Ata sintética: verificadas as transições offline e o acompanhamento.'});operations.push(await synchronize(manager,managerContext,'Registrar ata e encerrar reunião'));
  expect((await (await manager.request.get(`/api/v1/meetings/${meeting.id}`)).json()).record.status).toBe('COMPLETED');
- writeFileSync('test-results/staging/critical-operations.json',JSON.stringify(operations.map(({operationId,entityId,resource,command})=>({operationId,entityId,resource,command}))));
+ writeFileSync(`${artifactRoot}/critical-operations.json`,JSON.stringify(operations.map(({operationId,entityId,resource,command})=>({operationId,entityId,resource,command}))));
  await managerContext.close();
 });
 
@@ -85,5 +87,5 @@ for(const decision of ['KEEP_SERVER','RETRY'] as const)test(`alteração de paut
  const readerContext=await browser.newContext({baseURL:page.url().split('/offline')[0]});const reader=await readerContext.newPage();await login(reader,'LEITOR');
  const deviceId=crypto.randomUUID();const registered=await reader.request.post('/api/v1/devices/register',{data:{deviceId,organizationId:org,label:'Homologação de acesso offline',platform:'Playwright sintético'}});expect(registered.ok()).toBeTruthy();
  const denied=await reader.request.post('/api/v1/offline/transitions',{headers:{'x-device-id':deviceId},data:{...envelope,deviceId,operationId:crypto.randomUUID()}});expect(denied.status()).toBe(403);
- writeFileSync(`test-results/staging/critical-resolution-${decision}.json`,JSON.stringify({operationId:envelope.operationId,sourceOperationId:envelope.sourceOperationId,entityId:meeting.id}));await readerContext.close();
+ writeFileSync(`${artifactRoot}/critical-resolution-${decision}.json`,JSON.stringify({operationId:envelope.operationId,sourceOperationId:envelope.sourceOperationId,entityId:meeting.id}));await readerContext.close();
 });

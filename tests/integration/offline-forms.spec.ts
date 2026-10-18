@@ -2,12 +2,14 @@ import {test,expect,chromium,type Page,type BrowserContext,type Locator} from '@
 import {readFileSync,writeFileSync,mkdtempSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {applyStagingSso,artifactRoot} from './staging-browser';
 const file=process.env.SGC_STAGING_ACCOUNTS_FILE;
 if(!file)throw new Error('Contas sintéticas obrigatórias.');
 const accounts:Array<{email:string;password:string;role:string}>=JSON.parse(readFileSync(file,'utf8')).accounts;
 const org='362db1a9-bfdd-4334-9436-46b1c0117eab',unit='32747837-0478-49b4-be4d-f96d5e120c1d';
 const section=(page:Page,title:string)=>page.locator('section').filter({has:page.getByRole('heading',{name:title,exact:true})});
 async function login(page:Page,role:string){
+ await applyStagingSso(page.context());
  const account=accounts.find(a=>a.role===role)!;await page.goto('/login');await page.getByLabel('E-mail',{exact:true}).fill(account.email);await page.getByLabel('Senha',{exact:true}).fill(account.password);await page.getByRole('button',{name:'Entrar',exact:true}).click();await expect(page.getByRole('heading',{name:'Prioridades da unidade'})).toBeVisible();
  if(role==='ADMIN_SISTEMA'){const scope=page.getByRole('combobox',{name:'Unidade de trabalho'});const changed=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/v1/workspace/scope'&&r.request().method()==='POST');await scope.selectOption(`${org}:${unit}`);expect((await changed).status()).toBe(200);}
 }
@@ -59,7 +61,7 @@ test('14 formulários MVP gravam offline pela interface e reenvio não duplica',
  const actual=await (await page.request.get(`/api/v1/meetings/${meeting.id}`)).json();expect(actual.related.agenda).toHaveLength(1);expect(actual.related.participants).toHaveLength(1);expect(actual.related.referrals).toHaveLength(1);
  const readerContext=await browser.newContext({baseURL:page.url().split('/offline')[0]});const reader=await readerContext.newPage();await login(reader,'LEITOR');const deviceId=crypto.randomUUID();await post(reader,'devices/register',{deviceId,organizationId:org,label:'Teste sintético de formulários',platform:'Playwright'});
  const denied=await reader.request.post('/api/v1/offline/forms',{headers:{'x-device-id':deviceId},data:{...operations[operations.length-1],operationId:crypto.randomUUID(),deviceId}});expect(denied.status()).toBe(403);await readerContext.close();
- writeFileSync('test-results/staging/form-operations.json',JSON.stringify(operations.map(({operationId,entityId,resource,command})=>({operationId,entityId,resource,command}))));
+ writeFileSync(`${artifactRoot}/form-operations.json`,JSON.stringify(operations.map(({operationId,entityId,resource,command})=>({operationId,entityId,resource,command}))));
 });
 
 test('formulário sobrevive reinício sem rede, resposta perdida e conflito de pauta',async({},info)=>{
@@ -74,7 +76,7 @@ test('formulário sobrevive reinício sem rede, resposta perdida e conflito de p
  }
  async function unlock(){await page.goto('/offline');await page.getByLabel('PIN local',{exact:true}).fill('135790');await page.getByRole('button',{name:'Desbloquear cofre',exact:true}).click();await expect(page.getByRole('button',{name:'Sincronizar pendências',exact:true})).toBeVisible();}
  await prepareAgenda('1','Pauta sintética antes do reinício');await context.close();
- context=await chromium.launchPersistentContext(profile,{baseURL:info.project.use.baseURL,serviceWorkers:'allow'});page=await context.newPage();await context.setOffline(true);await unlock();await expect(page.getByText('Aguardando envio',{exact:true})).toBeVisible();await expect(page.getByText('Confirmado pelo servidor',{exact:true})).toHaveCount(0);
+ context=await chromium.launchPersistentContext(profile,{baseURL:info.project.use.baseURL,serviceWorkers:'allow'});await applyStagingSso(context);page=await context.newPage();await context.setOffline(true);await unlock();await expect(page.getByText('Aguardando envio',{exact:true})).toBeVisible();await expect(page.getByText('Confirmado pelo servidor',{exact:true})).toHaveCount(0);
  await context.setOffline(false);await page.route('**/api/v1/offline/forms',async route=>{const result=await route.fetch();expect(result.status()).toBe(200);await route.abort();},{times:1});await page.getByRole('button',{name:'Sincronizar pendências',exact:true}).click();await expect(page.getByRole('status')).toContainText('Itens preservados');
  await page.getByRole('button',{name:'Sincronizar pendências',exact:true}).click();await expect(page.getByText('Confirmado pelo servidor',{exact:true})).toBeVisible();
  const first=await (await page.request.get(`/api/v1/meetings/${meeting.id}`)).json();expect(first.related.agenda).toHaveLength(1);
@@ -85,5 +87,5 @@ test('formulário sobrevive reinício sem rede, resposta perdida e conflito de p
  const resolving=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/v1/offline/forms');await page.getByRole('button',{name:'Confirmar decisão sobre a transição',exact:true}).click();const resolved=await resolving;expect(resolved.status()).toBe(200);await expect(page.getByRole('status')).toContainText('Conflito resolvido e auditado');
  const envelope=resolved.request().postDataJSON();const replay=await page.request.post('/api/v1/offline/forms',{headers:{'x-device-id':envelope.deviceId},data:envelope});expect((await replay.json()).duplicate).toBe(true);
  const final=await (await page.request.get(`/api/v1/meetings/${meeting.id}`)).json();expect(final.record.status).toBe('SCHEDULED');expect(final.related.agenda).toHaveLength(3);expect(final.related.agenda.filter((a:{position:number})=>a.position===2)).toHaveLength(1);
- writeFileSync('test-results/staging/form-resolution.json',JSON.stringify({operationId:envelope.operationId,sourceOperationId:envelope.sourceOperationId,entityId:meeting.id}));await page.screenshot({path:info.outputPath('formulario-conflito-resolvido.png'),fullPage:true});await context.close();
+ writeFileSync(`${artifactRoot}/form-resolution.json`,JSON.stringify({operationId:envelope.operationId,sourceOperationId:envelope.sourceOperationId,entityId:meeting.id}));await page.screenshot({path:info.outputPath('formulario-conflito-resolvido.png'),fullPage:true});await context.close();
 });

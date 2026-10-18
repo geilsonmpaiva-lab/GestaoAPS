@@ -1,11 +1,13 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import {applyStagingSso,artifactRoot} from './staging-browser';
 
 const file = process.env.SGC_STAGING_ACCOUNTS_FILE;
 if (!file) throw new Error("Arquivo privado de contas sintéticas obrigatório.");
 const accounts: { email: string; password: string; role: string }[] = JSON.parse(readFileSync(file, "utf8")).accounts;
 const section = (page: Page, title: string) => page.locator("section").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
 async function login(page: Page, role: string) {
+  await applyStagingSso(page.context());
   page.setDefaultTimeout(20_000);
   page.setDefaultNavigationTimeout(30_000);
   const account = accounts.find(item => item.role === role)!;
@@ -77,6 +79,7 @@ test("ciclo completo pela interface, com gerente A e leitor B segregados", async
   await form.getByLabel("Conteúdo institucional", { exact: false }).fill("Aplicar checklist administrativo sintético e anexar o comprovante de teste.");
   await form.getByLabel("Início da vigência", { exact: false }).fill("2026-01-01");
   await form.getByLabel("Conhecimento publicado de referência", { exact: false }).selectOption(kv.id);
+  await expect(form.locator(`option[value="${kv.id}"]`)).toContainText(`[HOMOLOGAÇÃO] Ciclo ${suffix} · versão 1`);
   const pv = await command(page, "Criar nova versão");
   await expect(page).toHaveURL(new RegExp(`/protocol-versions/${pv.id}`));
   form = section(page, "Salvar checklist desta versão");
@@ -102,6 +105,8 @@ test("ciclo completo pela interface, com gerente A e leitor B segregados", async
   await detail(manager, "protocol-versions", pv.id);
   const execution = await command(manager, "Iniciar execução nesta UBS");
   await expect(manager).toHaveURL(new RegExp(`/executions/${execution.id}`));
+  await expect(manager.getByRole('heading',{level:1})).toContainText('Execução de protocolo');
+  expect(new URL(manager.url()).searchParams.get('returnTo')).not.toContain('returnTo=');
   form = section(manager, "Salvar respostas do checklist");
   await form.getByLabel("Percentual administrativo verificado", { exact: false }).fill("70");
   await command(manager, "Salvar respostas do checklist");
@@ -142,6 +147,9 @@ test("ciclo completo pela interface, com gerente A e leitor B segregados", async
   for (const [label, value] of Object.entries({ "O que será feito": "Rever checklist sintético", "Por quê": "Corrigir desvio administrativo de teste", "Onde": "UBS Sintética A", "Quando": "2026-12-15T14:00", "Como": "Revisão administrativa para homologação", "Quanto custa": "0" })) await form.getByLabel(label, { exact: false }).fill(value);
   const action = await command(manager, "Adicionar ação 5W2H");
   await expect(manager).toHaveURL(new RegExp(`/actions/${action.id}`));
+  await expect(section(manager,'Informações do registro')).toContainText('15/12/2026');
+  await expect(section(manager,'Informações do registro')).toContainText('(Brasília)');
+  await expect(manager.getByRole('heading',{name:'Comentários',exact:true})).toBeVisible();
   form = section(manager, "Atualizar acompanhamento");
   await form.getByLabel("Situação", { exact: false }).selectOption("EM_ANDAMENTO");
   await form.getByLabel("Percentual concluído", { exact: false }).fill("50");
@@ -217,7 +225,7 @@ test("ciclo completo pela interface, com gerente A e leitor B segregados", async
   const visibleToReader=await reader.request.get(`/api/v1/knowledge/${unitBRecord}`);
   expect(visibleToReader.status()).toBe(200);
   await manager.goto("/");
-  await manager.screenshot({ path: "test-results/staging/ciclo-dashboard.png", fullPage: true });
+  await manager.screenshot({ path: `${artifactRoot}/ciclo-dashboard.png`, fullPage: true });
   await test.info().attach("registros-sinteticos", { body: JSON.stringify({ knowledge, indicator, protocol, protocolVersion: pv.id, execution: execution.id, measurement, planId, action: action.id, meeting, referral: referral.id }), contentType: "application/json" });
   await managerContext.close();
   await readerContext.close();

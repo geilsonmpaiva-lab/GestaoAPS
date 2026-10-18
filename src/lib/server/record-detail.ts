@@ -88,6 +88,18 @@ export async function loadRecordDetail(resource: string, id: string, workspace: 
     choices.people = (result.data ?? []) as DetailRow[];
   }));
   await Promise.all(tasks);
+  // Parent names are read with the same organization/UBS filters and RLS as the detail.
+  // Never fetch an unrestricted parent merely to improve a label.
+  const versions = [...(choices.knowledge ?? []), ...(related['knowledge-versions'] ?? [])];
+  const parentIds = [...new Set(versions.map(row => row.knowledge_item_id).filter((id): id is string => typeof id === 'string'))];
+  if (parentIds.length) {
+    const result = await scoped('knowledge_items').select('id,title').in('id', parentIds).is('deleted_at', null);
+    if (result.error) throw new Error('Não foi possível identificar as referências autorizadas.');
+    for (const version of versions) {
+      const parent = result.data?.find(item => item.id === version.knowledge_item_id);
+      if (parent) version.reference_title = parent.title;
+    }
+  }
   const attachmentIds = (related.evidence ?? []).map(row => String(row.attachment_id));
   if (attachmentIds.length) {
     const result = await scoped("attachments").in("id", attachmentIds);

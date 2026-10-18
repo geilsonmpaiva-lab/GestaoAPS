@@ -5,6 +5,7 @@ import { DraftTools, DraftWorkspace } from "./draft-tools";
 import { OfflineVault } from "@/lib/offline/vault";
 import { queueWork } from "@/lib/offline/work";
 import { criticalTransition } from '@/lib/offline/transitions';
+import {recordHref} from '@/lib/ui-labels';
 
 export type CommandField = { name: string; label: string; type?: "text" | "textarea" | "number" | "date" | "datetime-local" | "checkbox"; options?: { value: string; label: string }[]; required?: boolean; defaultValue?: string; min?: number; max?: number; minLength?: number; pattern?: string };
 export type CommandFormProps = { title: string; endpoint: string; expectedVersion?: number; fields?: CommandField[]; payload?: Record<string, unknown>; transform?: (values: Record<string, unknown>) => Record<string, unknown>; method?: "POST" | "PUT"; redirectResource?: string; children?: React.ReactNode; onSuccess?: (result: Record<string, unknown>) => void; disabled?: boolean; extraDraft?:{value:string;restore:(value:string)=>void} };
@@ -67,7 +68,7 @@ export function CommandForm({ title, endpoint, expectedVersion, fields = [], pay
       setMessage("Salvo e confirmado pelo servidor.");
       onSuccess?.(result);
       const nextId = redirectResource === "action-plans" ? result.actionPlanId ?? result.id : result.id;
-      if (redirectResource && typeof nextId === "string") router.push(`/registros/${redirectResource}/${nextId}?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+      if (redirectResource && typeof nextId === "string") router.push(recordHref(redirectResource,nextId,window.location.pathname + window.location.search));
       else router.refresh();
     } catch (error) { setFailed(true); setMessage((error instanceof Error ? error.message : "Falha de conexão. Tente novamente.") + (pendingBody.current && !conflict ? ' A nova tentativa reenviará exatamente a mesma operação para evitar duplicação.' : '')); }
     finally { setBusy(false); }

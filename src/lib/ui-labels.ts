@@ -3,6 +3,22 @@ const labels: Record<string, string> = {
 };
 export function uiLabel(value: string) { return labels[value] ?? value.replaceAll('_', ' ').toLocaleLowerCase('pt-BR'); }
 export function safeReturnTo(value: string | null | undefined, fallback = '/') {
-  if (!value || !value.startsWith('/') || value.startsWith('//') || /[\\\r\n]/.test(value)) return fallback;
-  try { const url = new URL(value, 'https://sgc.invalid'); return url.origin === 'https://sgc.invalid' ? url.pathname + url.search : fallback; } catch { return fallback; }
+  if (!value || value.length > 16384 || !value.startsWith('/') || value.startsWith('//') || /[\\\r\n]/.test(value)) return fallback;
+  try {
+    let url = new URL(value, 'https://sgc.invalid');
+    for (let depth = 0; depth < 8; depth++) {
+      if (url.origin !== 'https://sgc.invalid') return fallback;
+      // Detail relationships have explicit parent links. Back goes to the original
+      // filtered list instead of growing an encoded browser-history stack.
+      const nested = url.pathname.startsWith('/registros/') && url.searchParams.get('returnTo');
+      if (!nested) { url.searchParams.delete('returnTo'); return url.pathname + url.search; }
+      if (!nested.startsWith('/') || nested.startsWith('//') || /[\\\r\n]/.test(nested)) return fallback;
+      url = new URL(nested, 'https://sgc.invalid');
+    }
+    return fallback;
+  } catch { return fallback; }
+}
+
+export function recordHref(resource: string, id: string, returnTo: string) {
+  return `/registros/${encodeURIComponent(resource)}/${encodeURIComponent(id)}?returnTo=${encodeURIComponent(safeReturnTo(returnTo))}`;
 }
