@@ -51,6 +51,7 @@ export function CommandForm({ title, endpoint, expectedVersion, fields = [], pay
       }
       operation.current = null;
       pendingBody.current = null;
+      if (result.mode === "demo") { setMessage("Simulação concluída. Nenhuma alteração foi gravada."); return; }
       setMessage("Salvo e confirmado pelo servidor.");
       onSuccess?.(result);
       const nextId = redirectResource === "action-plans" ? result.actionPlanId ?? result.id : result.id;

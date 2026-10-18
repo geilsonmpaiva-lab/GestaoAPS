@@ -16,8 +16,8 @@ test("dashboard and module navigation remain actionable", async ({ page }) => {
   const created = page.waitForResponse((response) => response.url().endsWith("/api/v1/protocols") && response.request().method() === "POST");
   await page.getByRole("button", { name: "Salvar e continuar" }).click();
   expect((await created).status()).toBe(201);
-  await expect(page).toHaveURL(/\/registros\/protocols\//);
-  await expect(page.getByRole("heading", { name: "Informações do registro" })).toBeVisible();
+  await expect(page).toHaveURL(/\/cadastros\/protocols/);
+  await expect(page.getByRole("alert").filter({ hasText: "Simulação concluída" })).toBeVisible();
   await page.getByRole("button", { name: "Sincronização" }).click();
   await expect(page.getByRole("dialog", { name: "Cofre offline deste dispositivo" })).toBeVisible();
   await page.getByLabel("PIN local de 6 a 12 dígitos").fill("123");
@@ -29,5 +29,5 @@ test("dashboard and module navigation remain actionable", async ({ page }) => {
   await expect(page).toHaveURL(/\/registros\/meetings\//);
   await expect(page.getByRole("definition").filter({ hasText: /^Agendada$/ })).toBeVisible();
   await page.getByRole("button", { name: "Iniciar reunião" }).click();
-  await expect(page.getByRole("status").filter({ hasText: "Salvo e confirmado pelo servidor." })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Simulação concluída" })).toBeVisible();
 });

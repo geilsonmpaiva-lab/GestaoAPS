@@ -1,9 +1,13 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { runtimeMode } from "@/lib/runtime-mode";
 
 export async function proxy(request: NextRequest) {
-  const demo = process.env.SGC_DEMO_MODE === "true" || !process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (demo) return NextResponse.next();
+  const mode = runtimeMode();
+  if (mode === "demo") return NextResponse.next();
+  if (mode === "unconfigured") return NextResponse.json({ error: "Serviço indisponível: configuração pendente." }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  // The callback establishes the session; it must be reachable before authentication.
+  if (request.nextUrl.pathname === "/auth/confirm") return NextResponse.next();
 
   let response = NextResponse.next({ request });
   const client = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
@@ -18,19 +22,26 @@ export async function proxy(request: NextRequest) {
   });
 
   const { data } = await client.auth.getUser();
-  const publicPath = request.nextUrl.pathname === "/login" || request.nextUrl.pathname.startsWith("/api/v1/health") || request.nextUrl.pathname.startsWith("/_next");
+  const publicPath = ["/login", "/api/v1/health", "/offline.html"].includes(request.nextUrl.pathname);
+  const withCookies = (next: NextResponse) => {
+    response.cookies.getAll().forEach(cookie => next.cookies.set(cookie));
+    next.headers.set("Cache-Control", "no-store");
+    return next;
+  };
   if (!data.user && !publicPath) {
+    if (request.nextUrl.pathname.startsWith("/api/")) return withCookies(NextResponse.json({ error: "Autenticação necessária." }, { status: 401 }));
     const url = request.nextUrl.clone();
     url.pathname = "/login";
-    url.searchParams.set("returnTo", request.nextUrl.pathname);
-    return NextResponse.redirect(url);
+    url.search = "";
+    url.searchParams.set("returnTo", request.nextUrl.pathname + request.nextUrl.search);
+    return withCookies(NextResponse.redirect(url));
   }
   const isPasswordSetup = request.nextUrl.searchParams.get("passwordSetup") === "recovery";
   if (data.user && request.nextUrl.pathname === "/login" && !isPasswordSetup) {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     url.search = "";
-    return NextResponse.redirect(url);
+    return withCookies(NextResponse.redirect(url));
   }
   return response;
 }

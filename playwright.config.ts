@@ -6,7 +6,9 @@ export default defineConfig({
   workers: 2,
   timeout: 60_000,
   reporter: "html",
-  use: { baseURL: "http://localhost:3101", trace: "on-first-retry" },
+  // Mocked API journeys must not be intercepted by the PWA service worker.
+  // Installation/cache behavior requires its own unmocked physical-device gate.
+  use: { baseURL: "http://localhost:3101", trace: "on-first-retry", serviceWorkers: "block" },
   // External server is only for a separately started local demo on the same fixed URL.
   webServer: process.env.SGC_E2E_EXTERNAL_SERVER === 'true' ? undefined : { command: "node node_modules/next/dist/bin/next start -p 3101", url: "http://localhost:3101/api/v1/health", reuseExistingServer: false, env: { SGC_DEMO_MODE: "true" } },
   projects: [

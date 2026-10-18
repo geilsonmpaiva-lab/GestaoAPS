@@ -2,18 +2,25 @@ project_id = "sgc-ubs"
 
 [api]
 enabled = true
-port = 54321
+port = 56321
 schemas = ["public", "graphql_public"]
 extra_search_path = ["public", "extensions"]
 max_rows = 1000
 
 [db]
-port = 54322
+port = 56322
+shadow_port = 56320
 major_version = 17
 
 [studio]
 enabled = true
-port = 54323
+port = 56323
+
+[local_smtp]
+enabled = true
+port = 56324
+smtp_port = 56325
+pop3_port = 56326
 
 [auth]
 enabled = true

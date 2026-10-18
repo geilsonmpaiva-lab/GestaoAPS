@@ -126,7 +126,8 @@ export async function loadModuleDefinitionV2(slug: string, workspace: WorkspaceC
       const id = item.id ?? `00000000-0000-4000-8000-${String(resourceNumber * 1000 + index + 1).padStart(12, "0")}`;
       return { ...item, id, resource, rawStatus: demoStatus, status: statusLabels[demoStatus] ?? demoStatus, tone: toneFor(demoStatus), href: resource && resource !== "units" ? `/registros/${resource}/${id}` : undefined };
     }).filter((item) => (!filters.search || `${item.title} ${item.meta}`.toLowerCase().includes(filters.search.toLowerCase())) && (!filters.status || item.rawStatus === filters.status) && (!filters.domain || item.meta.toLowerCase().includes(filters.domain.toLowerCase())) && (!filters.responsibleId || filters.responsibleId === "me" || filters.responsibleId === workspace.userId));
-    return { ...definition, records: records.slice((page - 1) * pageSize, page * pageSize), pageInfo: { page, pageSize, total: records.length } };
+    const matching = records.filter(() => filters.view !== "completed-executions" && filters.view !== "overdue-actions" && filters.due !== "overdue");
+    return { ...definition, metrics: [{ label: "Registros demonstrativos", value: String(matching.length), note: "Dados sintéticos; alterações não persistem" }], records: matching.slice((page - 1) * pageSize, page * pageSize), pageInfo: { page, pageSize, total: matching.length } };
   }
   if (["seguranca", "ouvidoria"].includes(slug)) return loadModuleDefinition(slug, workspace.organizationId, workspace.unitId, filters);
   const client = await createSupabaseServerClient();
@@ -294,7 +295,7 @@ export async function loadDashboardCounts() {
 
 export async function loadDashboardV2(workspace: WorkspaceContext) {
   const updatedAt = new Date().toISOString();
-  if (isDemoMode()) return { demo: true, updatedAt, outside: 0, overdue: 0, nonconformities: 0, executions: 0, completed: 0, notifications: [] as Array<{ id: string; title: string; severity: string; due_at: string | null; href: string | null }> };
+  if (isDemoMode()) return { demo: true, updatedAt, outside: modules.indicadores.records.length, overdue: 0, nonconformities: modules.melhoria.records.length, executions: modules.protocolos.records.length, completed: 0, notifications: [] as Array<{ id: string; title: string; severity: string; due_at: string | null; href: string | null }> };
   const client = await createSupabaseServerClient();
   const scopedCount = (table: string) => {
     let query = client.from(table).select("id", { count: "exact", head: true }).eq("organization_id", workspace.organizationId);

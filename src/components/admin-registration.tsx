@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Building2, Plus, UsersRound } from "lucide-react";
@@ -39,7 +39,9 @@ export function AdminRegistration({ area, creating, workspace, catalog }: { area
   </>;
 }
 
+const subscribeReady = () => () => {};
 function RegistrationForm({ area, catalog, workspace, returnTo }: { area: "usuarios" | "unidades"; catalog: AdminCatalog; workspace: WorkspaceContext; returnTo: string }) {
+  const ready = useSyncExternalStore(subscribeReady, () => true, () => false);
   const router = useRouter();
   const [name,setName] = useState(""); const [email,setEmail] = useState(""); const [cnes,setCnes] = useState("");
   const [unitId,setUnitId] = useState(workspace.unitId ?? catalog.units[0]?.id ?? "");
@@ -75,14 +77,14 @@ function RegistrationForm({ area, catalog, workspace, returnTo }: { area: "usuar
   if (done) return <section className="v2-panel v2-section"><h2>{area === "usuarios" ? "Convite processado" : "Cadastro processado"}</h2><p className="v2-alert" data-tone="success" role="status">{done}</p><Link className="v2-button" href={returnTo}>Voltar à lista</Link></section>;
   return <section className="v2-panel v2-section"><p className="v2-muted">{area === "usuarios" ? "Acesso exclusivamente por convite. Não informe ou compartilhe senhas. Selecione apenas as permissões necessárias." : "Informe o nome e o CNES da UBS. A organização é definida pelo contexto autorizado; o endereço é opcional."} Cadastros administrativos exigem conexão.</p>
     <form className="detail-form" onSubmit={submit} aria-busy={busy}>
-      <fieldset disabled={busy || partial}><legend>{area === "usuarios" ? "Identificação e acesso" : "Identificação da unidade"}</legend>
+      <fieldset disabled={!ready || busy || partial}><legend>{area === "usuarios" ? "Identificação e acesso" : "Identificação da unidade"}</legend>
         <label>{area === "usuarios" ? "Nome completo" : "Nome da unidade"}<input required minLength={2} maxLength={160} value={name} onChange={e => setName(e.target.value)} autoComplete={area === "usuarios" ? "name" : "off"} /></label>
         {area === "usuarios" ? <><label>E-mail do convite<input required type="email" maxLength={254} autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} /></label><label>Unidade de acesso<select required={!canOrg} value={unitId} onChange={e => {setUnitId(e.target.value);setRole("LEITOR");setDomains([]);setOperations(["visualizar"]);}}>{canOrg && <option value="">Toda a organização</option>}{catalog.units.filter(u => u.status === "ACTIVE").map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select></label><label>Perfil<select value={role} onChange={e => {setRole(e.target.value as AdminRole);setDomains([]);setOperations(["visualizar"]);}}>{roles.map(r => <option key={r} value={r}>{roleLabels[r]}</option>)}</select></label>
           <fieldset><legend>Áreas de acesso (selecione ao menos uma)</legend>{Object.entries(domainLabels).filter(([d]) => workspace.enabledModules.includes(d) && canChoose(d,"visualizar")).map(([d,label]) => <label className="admin-permission" key={d}><input type="checkbox" checked={domains.includes(d)} onChange={() => setDomains(toggle(domains,d))} />{label}</label>)}</fieldset>
           <fieldset><legend>Operações permitidas</legend>{Object.entries(operationLabels).filter(([o]) => Object.keys(domainLabels).some(d => canChoose(d,o))).map(([o,label]) => <label className="admin-permission" key={o}><input type="checkbox" checked={operations.includes(o)} onChange={() => setOperations(toggle(operations,o))} />{label}</label>)}</fieldset><p className="v2-muted">O perfil não concede permissões adicionais às operações selecionadas. Permissões indisponíveis não podem ser delegadas.</p></> : <><label>CNES (7 dígitos)<input required inputMode="numeric" pattern="[0-9]{7}" maxLength={7} value={cnes} onChange={e => setCnes(e.target.value.replace(/\D/g,""))} /></label><label>Logradouro e número<input name="street" maxLength={240} autoComplete="street-address" /></label><label>Município<input name="city" maxLength={120} autoComplete="address-level2" /></label><label>UF<input name="state" minLength={2} maxLength={2} pattern="[A-Za-z]{2}" autoComplete="address-level1" /></label><label>CEP<input name="postalCode" inputMode="numeric" pattern="[0-9]{5}-?[0-9]{3}" maxLength={9} autoComplete="postal-code" /></label></>}
       </fieldset>
       {error && <p className="v2-alert" data-tone="error" role="alert">{error}</p>}
-      <div className="dialog-actions"><Link className="v2-secondary" href={returnTo}>Cancelar</Link><button className="v2-button" disabled={busy || partial || (area === "usuarios" && !validInvite)}>{busy ? "Confirmando..." : area === "usuarios" ? "Enviar convite" : "Salvar unidade"}</button></div>
+      <div className="dialog-actions"><Link className="v2-secondary" href={returnTo}>Cancelar</Link><button className="v2-button" disabled={!ready || busy || partial || (area === "usuarios" && !validInvite)}>{busy ? "Confirmando..." : area === "usuarios" ? "Enviar convite" : "Salvar unidade"}</button></div>
     </form>
   </section>;
 }

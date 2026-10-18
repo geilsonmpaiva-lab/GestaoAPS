@@ -5,6 +5,8 @@ vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined })
 vi.mock("@/lib/modules", async () => import("../modules"));
 vi.mock("@/lib/domain/workspace-policy", async () => import("../domain/workspace-policy"));
 import { loadDashboardV2, loadModuleDefinitionV2, type WorkspaceContext } from "./workspace";
+vi.mock("server-only", () => ({}));
+import { loadRecordDetail } from "./record-detail";
 type Row = Record<string, unknown>;
 function query(data: Row[], failure = false) {
   let rows = [...data]; let start = 0; let end = Infinity;
@@ -25,6 +27,19 @@ function query(data: Row[], failure = false) {
 const workspace: WorkspaceContext = { organizationId: "org", organizationName: "Org", unitId: "a", unitName: "UBS A", userId: "user", userName: "User", userInitials: "US", environmentLabel: "Test", enabledModules: ["indicadores", "melhoria", "protocolos"], uxV2: true, scopes: [], permissions: [] };
 const measurements = Array.from({ length: 61 }, (_, id) => ({ id: String(id), organization_id: "org", unit_id: id < 55 ? "a" : "b", indicator_id: "indicator", status: "FORA_META", updated_at: "2026-09-09", competency: "2026-09-01", value: 5 }));
 describe("scope-aware list and dashboard reconciliation", () => {
+  it("reconciles synthetic cards and rejects unknown detail IDs", async () => {
+    mocks.demo.mockReturnValue(true);
+    const dashboard = await loadDashboardV2(workspace);
+    const outside = await loadModuleDefinitionV2("indicadores", workspace, { view: "outside" });
+    expect(dashboard.outside).toBe(outside?.pageInfo?.total);
+    const list = await loadModuleDefinitionV2("protocolos", workspace, {});
+    const item = list!.records[0];
+    const detail = await loadRecordDetail("protocols", item.id!, workspace);
+    expect(detail?.record.title).toBe(item.title);
+    expect(detail?.record.status).toBe(item.rawStatus);
+    expect(await loadRecordDetail("protocols", "ffffffff-ffff-4fff-8fff-ffffffffffff", workspace)).toBeNull();
+    expect((await loadModuleDefinitionV2("protocolos", workspace, { view: "completed-executions" }))?.pageInfo?.total).toBe(dashboard.completed);
+  });
   beforeEach(() => { mocks.demo.mockReturnValue(false); mocks.from.mockImplementation((table: string) => query(table === "measurements" ? measurements : table === "indicators" ? [{ id: "indicator", name: "Indicador institucional", code: "I-1" }] : [])); });
   it("returns total 55 and the final five records on page three", async () => {
     const result = await loadModuleDefinitionV2("indicadores", workspace, { view: "outside", page: "3" });

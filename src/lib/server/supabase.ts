@@ -1,8 +1,9 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { runtimeMode } from "@/lib/runtime-mode";
 
 export function isDemoMode() {
-  return process.env.SGC_DEMO_MODE === "true" || !process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  return runtimeMode() === "demo";
 }
 
 export async function createSupabaseServerClient() {

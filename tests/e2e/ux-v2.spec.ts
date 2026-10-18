@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 test("dashboard distinguishes the demonstration and links priorities to their records", async ({ page }, testInfo) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Prioridades da unidade" })).toBeVisible();
-  await expect(page.getByText("Demonstração: painel sem registros operacionais carregados.")).toBeVisible();
+  await expect(page.getByText("Demonstração: dados sintéticos. Alterações simuladas não são gravadas.")).toBeVisible();
   await expect(page.getByText("23/25", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("link", { name: /Medições fora da meta/ })).toHaveAttribute("href", "/indicadores?view=outside");
   await page.screenshot({ path: testInfo.outputPath("ux-v2-dashboard.png") });
@@ -109,7 +109,7 @@ test("encrypted draft survives reload and disconnected submission preserves the 
 
 test("a long checklist stays within the mobile viewport and remains scrollable", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 320, height: 720 });
-  await page.goto("/registros/protocol-versions/00000000-0000-4000-8000-000000000301");
+  await page.goto("/registros/protocol-versions/00000000-0000-4000-8000-000000002001");
   await expect(page.getByRole("heading", { name: "Salvar checklist desta versão" })).toBeVisible();
   await page.getByRole("button", { name: "Adicionar campo", exact: true }).click();
   await page.getByRole("button", { name: "Adicionar campo", exact: true }).click();

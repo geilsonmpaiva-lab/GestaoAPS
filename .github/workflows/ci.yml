@@ -7,6 +7,8 @@ on:
 jobs:
   application:
     runs-on: ubuntu-latest
+    env:
+      SGC_DEMO_MODE: "true"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,6 +20,15 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-validation
+          path: |
+            playwright-report/
+            test-results/
 
   database:
     runs-on: ubuntu-latest
@@ -31,3 +42,6 @@ jobs:
       - run: npx supabase start -x imgproxy,logflare,vector,supavisor
       - run: npm run db:reset
       - run: npm run db:test
+      - run: npx supabase db reset --local --version 202609090024 --no-seed
+      - run: npx supabase migration up --local
+      - run: npx supabase test db --local

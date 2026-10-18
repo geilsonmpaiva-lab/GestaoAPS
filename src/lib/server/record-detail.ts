@@ -1,7 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { createSupabaseServerClient, isDemoMode } from "@/lib/server/supabase";
-import type { WorkspaceContext } from "@/lib/server/workspace";
+import { loadModuleDefinitionV2, type WorkspaceContext } from "@/lib/server/workspace";
 
 export type DetailRow = Record<string, unknown> & { id: string };
 export type DetailData = { resource: string; module: string; record: DetailRow; related: Record<string, DetailRow[]>; choices: Record<string, DetailRow[]> };
@@ -24,8 +24,18 @@ export async function loadRecordDetail(resource: string, id: string, workspace: 
   const definition = detailResources[resource];
   if (!definition || !z.uuid().safeParse(id).success || !workspace.enabledModules.includes(definition.module)) return null;
   if (isDemoMode()) {
-    const row: DetailRow = { id, title: "Registro de demonstração", name: "Registro de demonstração", organization_id: workspace.organizationId, unit_id: workspace.unitId, status: resource === "meetings" ? "SCHEDULED" : resource === "executions" ? "IN_PROGRESS" : resource === "measurements" ? "FORA_META" : resource === "actions" || resource === "action-plans" ? "NAO_INICIADO" : resource === "protocol-versions" || resource === "protocols" ? "RASCUNHO" : "DRAFT", version: 1, version_number: 1 };
-    return { resource, module: definition.module, record: row, related: {}, choices: { people: [{ id: workspace.userId, name: workspace.userName }] } };
+    const views: Record<string, string> = { executions: "executions", measurements: "measurements", "action-plans": "plans", actions: "actions" };
+    const list = await loadModuleDefinitionV2(definition.module, workspace, { view: views[resource] });
+    const parentResource = resource === "protocol-versions" ? "protocols" : resource === "knowledge-versions" ? "knowledge" : resource;
+    const item = list?.records.find(record => record.id === id && record.resource === parentResource);
+    if (!item) return null;
+    const row: DetailRow = { id, title: item.title, name: item.title, description: item.meta, organization_id: workspace.organizationId, unit_id: workspace.unitId, status: item.rawStatus, version: 1, version_number: 1 };
+    const related: Record<string, DetailRow[]> = {};
+    if (resource === "protocols") related["protocol-versions"] = [{ ...row, protocol_id: id }];
+    if (resource === "knowledge") related["knowledge-versions"] = [{ ...row, knowledge_item_id: id }];
+    if (resource === "protocol-versions") row.protocol_id = id;
+    if (resource === "knowledge-versions") row.knowledge_item_id = id;
+    return { resource, module: definition.module, record: row, related, choices: { people: [{ id: workspace.userId, name: workspace.userName }] } };
   }
   const client = await createSupabaseServerClient();
   let effectiveUnit = workspace.unitId;
