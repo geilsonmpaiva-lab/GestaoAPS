@@ -10,6 +10,8 @@ import { DraftTools } from '@/components/draft-tools';
 import { EsfMapReport } from '@/components/esf-map-report';
 import { esfReferenceItems } from '@/lib/esf/reference-items';
 import { EsfReceiptField } from '@/components/esf-receipt-field';
+import { EsfPaperReport } from '@/components/esf-paper-report';
+import { buildMapPaper } from '@/lib/esf/paper';
 
 function MapFields({ fields, values, change, disabled, receipt }: { fields: EsfField[]; values: Record<string, MapValue>; change: (key: string, value: MapValue) => void; disabled: boolean; receipt?: { mapId?: string; teamId: string; version: number } }) {
   return <div className="esf-map-fields">{fields.filter(f => f.type !== 'calculated').map(f => {
@@ -91,7 +93,9 @@ export function EsfMapEditor({ form, initial, workspace }: { form: string; initi
         setPayload(p => ({ ...p, sections: { ...p.sections, records: esfReferenceItems[form].map(item => ({ id: crypto.randomUUID(), values: { sourceLine: item.line, itemId: item.label } })) } })); setMessage('Linhas documentais preparadas sem quantidades. Confira unidades, lotes e saldos antes de confirmar.');
       }}>Carregar linhas do modelo sem quantidades</button></>}
       {def.sections.length > 1 && <label className="v2-field"><span>Bloco do formulário</span><select aria-label="Bloco do formulário" disabled={Object.keys(values).length > 0} value={sectionId} onChange={e => { setSectionId(e.target.value); setRow(null); setValues({}); setPage(1); }}>{def.sections.map(s => <option value={s.id} key={s.id}>{s.title}</option>)}</select></label>}
-      {editable && <form onSubmit={addRow}><h3>{row ? 'Editar linha preparada' : 'Adicionar lançamento'}</h3><MapFields fields={section.fields} values={values} disabled={busy} receipt={{ mapId: map?.id, teamId: initial.teamId, version: map?.version ?? 0 }} change={(key, value) => setValues(v => ({ ...v, [key]: value }))} />
+      {editable && <form onSubmit={addRow}><h3>{row ? 'Editar linha preparada' : 'Adicionar lançamento'}</h3>
+      {esfReferenceItems[form]&&<label className="v2-field"><span>Item do formulário revisado</span><select aria-label="Item do formulário revisado" disabled={busy} value={esfReferenceItems[form].find(item=>item.label===values.itemId&&item.line===values.sourceLine)?.line??''} onChange={e=>{const item=esfReferenceItems[form].find(item=>item.line===e.target.value);if(item)setValues(v=>({...v,itemId:item.label,sourceLine:item.line}));}}><option value="">Selecionar item impresso ou informar outro abaixo</option>{esfReferenceItems[form].map(item=><option value={item.line} key={item.line}>{item.line} · {item.label}</option>)}</select><small>Vincula à linha exata do papel. Referência documental, sem aprovação institucional do catálogo. Outros itens serão identificados separadamente na impressão.</small></label>}
+      <MapFields fields={section.fields} values={values} disabled={busy} receipt={{ mapId: map?.id, teamId: initial.teamId, version: map?.version ?? 0 }} change={(key, value) => setValues(v => ({ ...v, [key]: value }))} />
       <dl className="esf-report-meta">{section.fields.filter(f => f.type === 'calculated').map(f => <div key={f.key}><dt>{f.label}</dt><dd>{displayMapValue(calculatedRow(form, section.id, values)[f.key])}</dd></div>)}</dl>
       <button className="v2-secondary" disabled={busy || !row && rows.length >= 250}>{row ? 'Atualizar linha nesta tela' : 'Adicionar linha nesta tela'}</button>{Object.keys(values).length > 0 && <button type="button" className="v2-secondary" disabled={busy} onClick={() => { if (window.confirm('Descartar somente a edição desta linha ainda não adicionada? Os registros já adicionados serão preservados.')) { setRow(null); setValues({}); } }}>Descartar edição não adicionada</button>}</form>}
       <p>{rows.length} registro(s) neste bloco{dirty ? ' · Há dados ainda não confirmados no servidor' : ' · Dados confirmados'}</p>
@@ -114,7 +118,7 @@ export function EsfMapEditor({ form, initial, workspace }: { form: string; initi
       }} />}
     </section>
     {conflict && <section className="v2-panel v2-section"><h2>Conflito: sua cópia foi preservada</h2><p>Compare a prévia desta tela com a versão confirmada abaixo antes de decidir. Não há mesclagem automática.</p><details><summary>Versão confirmada no servidor</summary><EsfMapReport map={conflict} organization={workspace.organizationName} unit={workspace.unitName} team={teamName} /></details><button className="v2-secondary" onClick={() => { setMap(conflict); setPayload(conflict.payload); setConflict(null); pending.current = null; setMessage('Versão do servidor adotada por escolha explícita.'); }}>Substituir esta cópia pela versão do servidor</button></section>}
-    <details className="v2-panel v2-section"><summary>Prévia preenchida dos dados desta tela {dirty ? '(não confirmados)' : '(confirmados)'}</summary><EsfMapReport map={reportMap} organization={workspace.organizationName} unit={workspace.unitName} team={teamName} /></details>
+    <details className="v2-panel v2-section"><summary>Prévia fiel ao formulário revisado {dirty ? '(dados não confirmados)' : '(dados confirmados)'}</summary><EsfPaperReport document={buildMapPaper(reportMap,{organization:workspace.organizationName,unit:workspace.unitName,team:teamName})} /></details>
     </>}
     <section className="v2-panel v2-section"><h2>Mapas recentes desta equipe</h2><p>Até 25 mapas recentes. Para abrir um mapa, confirme antes suas alterações.</p>{initial.maps.map(m => <p key={m.id}><button className="v2-secondary" disabled={busy || dirty} onClick={() => router.push(`${path}?team=${initial.teamId}&map=${m.id}`)}>Abrir {m.competency} · {mapStatusLabels[m.status]} · {m.id.slice(0, 8)}</button></p>)}</section>
   </div>;

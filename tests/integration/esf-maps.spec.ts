@@ -2,6 +2,10 @@ import { test, expect, type Page, type Locator } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { mapDefinition, mapIds } from '../../src/lib/esf/maps';
 import type { EsfField } from '../../src/lib/esf/catalog';
+import { esfReferenceItems } from '../../src/lib/esf/reference-items';
+import { execFileSync } from 'node:child_process';
+import { buildProductionPaper } from '../../src/lib/esf/paper';
+import type { EsfProductionData } from '../../src/lib/esf/production';
 import { applyStagingSso, artifactRoot } from './staging-browser';
 const accounts = JSON.parse(readFileSync(process.env.SGC_STAGING_ACCOUNTS_FILE!, 'utf8')).accounts as { role: string; email: string; password: string }[];
 async function login(page: Page, role: string) {
@@ -48,6 +52,12 @@ test('nine ESF maps: real synthetic persistence, filled/calculated PDF, closure,
       if (def.sections.length > 1) await manager.getByLabel('Bloco do formulário', { exact: true }).selectOption(section.id);
       const form = manager.locator('form').filter({ has: manager.getByRole('heading', { name: 'Adicionar lançamento', exact: true }) });
       await fillFields(form, section.fields, id);
+      if(id==='insulinas'&&section.id==='supplies')await form.getByLabel(section.fields.find(f=>f.key==='item')!.label,{exact:true}).fill('Agulhas');
+      if(id==='insulinas'&&section.id==='insulinStock'){
+        await form.getByLabel(section.fields.find(f=>f.key==='insulinType')!.label,{exact:true}).fill('NPH');
+        await form.getByLabel(section.fields.find(f=>f.key==='presentation')!.label,{exact:true}).fill('Frasco');
+      }
+      if(esfReferenceItems[id]) await form.getByRole('combobox',{name:'Item do formulário revisado',exact:true}).selectOption(esfReferenceItems[id][0].line);
       if (section.id === 'deliveries') {
         await form.getByLabel('Selecionar comprovante sintético').setInputFiles({ name: 'comprovante-sintetico.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/a9sAAAAASUVORK5CYII=', 'base64') });
         await postButton(manager, 'Enviar comprovante sintético', '/api/v1/esf/maps/receipt');
@@ -65,8 +75,13 @@ test('nine ESF maps: real synthetic persistence, filled/calculated PDF, closure,
     await postButton(manager, 'Fechar mapa de teste'); await expect(manager.getByRole('button', { name: 'Reabrir mapa de teste', exact: true })).toBeVisible();
     const print = await managerContext.newPage();
     await print.goto(`/formularios-esf/${id}/impressao?team=${teamA}&map=${saved.id}`);
-    await expect(print.getByText('SNAPSHOT DE TESTE', { exact: false })).toBeVisible(); await expect(print.locator('.esf-report')).toContainText('[SINTÉTICO]');
-    if (id === 'medicamentos') { await expect(print.locator('.esf-report')).toContainText('100'); await expect(print.locator('.esf-report')).toContainText('8'); }
+    await expect(print.getByText('SNAPSHOT DE TESTE', { exact: false }).first()).toBeVisible(); await expect(print.locator('.esf-faithful-report')).toContainText('[SINTÉTICO]');
+    const svg=print.locator('svg.esf-source-canvas').first();await expect(svg).toHaveAttribute('data-source-svg',/\/esf\/revisados\/.+_revisado\.svg$/);
+    const source=await print.request.get((await svg.getAttribute('data-source-svg'))!);expect(source.status()).toBe(200);await expect(svg).toBeVisible();
+    // Horizontal SVG lines have zero-height bounding boxes: inspect their stroke,
+    // then validate the painted result in the rendered PDF rather than visibility.
+    await expect(svg.locator('.esf-source-background line').first()).toHaveAttribute('stroke',/#[0-9a-f]+/i);
+    if (id === 'medicamentos') { await expect(print.locator('.esf-faithful-report')).toContainText('100'); await expect(print.locator('.esf-faithful-report')).toContainText('8'); }
     await print.pdf({ path: `${artifactRoot}/esf-${id}-preenchido.pdf`, preferCSSPageSize: true, printBackground: true }); await print.close();
     await manager.setViewportSize({ width: 320, height: 760 });
     expect(await manager.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -78,4 +93,19 @@ test('nine ESF maps: real synthetic persistence, filled/calculated PDF, closure,
   await reader.goto(`/formularios-esf/materiais?team=${teamB}`); await expect(reader.getByRole('heading', { name: 'Homologação com dados sintéticos' })).toBeVisible(); await expect(reader.getByRole('button', { name: 'Confirmar mapa no servidor' })).toHaveCount(0);
   await reader.goto(`/formularios-esf/hanseniase?team=${teamB}`); await expect(reader.getByText('Não foi possível abrir este mapa ou equipe.', { exact: false })).toBeVisible();
   await readerContext.close(); await managerContext.close();
+});
+
+test('original 25-line production sheet: visual fixture with 12 months and calculated total',async({page})=>{
+  await login(page,'GERENTE_UBS');
+  const styles=await page.locator('link[rel="stylesheet"]').evaluateAll(nodes=>nodes.map(node=>(node as HTMLLinkElement).href));
+  const data={annual:Array.from({length:12},(_,i)=>({competency:`2028-${String(i+1).padStart(2,'0')}`,procedureId:'med-consulta',quantity:i+1})),monthly:null} as EsfProductionData;
+  const document=buildProductionPaper(data,'2028-01',{organization:'[HOMOLOGAÇÃO] Município sintético',unit:'[HOMOLOGAÇÃO] UBS de teste',team:'[SINTÉTICO] ESF de conferência'});
+  // Playwright transforms TSX into component-test descriptors, not React nodes.
+  // Compile the trusted app component with the same automatic JSX runtime instead.
+  const script=`import{build}from'esbuild';import{createElement}from'react';import{renderToStaticMarkup}from'react-dom/server';const r=await build({entryPoints:['src/components/esf-paper-report.tsx'],bundle:true,platform:'node',format:'esm',write:false,jsx:'automatic',define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'});const m=await import('data:text/javascript;base64,'+Buffer.from(r.outputFiles[0].text).toString('base64'));process.stdout.write(renderToStaticMarkup(createElement(m.EsfPaperReport,{document:JSON.parse(process.argv[1])})));`;
+  const html=execFileSync(process.execPath,['--input-type=module','-e',script,JSON.stringify(document)],{encoding:'utf8',maxBuffer:8*1024*1024});
+  await page.setContent(`<html lang="pt-BR"><head>${styles.map(href=>`<link rel="stylesheet" href="${href}">`).join('')}</head><body><main class="esf-print-page esf-faithful-print">${html}</main></body></html>`);
+  await expect(page.locator('svg.esf-source-canvas')).toHaveAttribute('data-source-svg',/01_producao_consolidada_revisado.svg$/);await expect(page.locator('.esf-source-background')).toContainText('PRODUÇÃO CONSOLIDADA');
+  await expect(page.locator('[data-paper-cell="Consulta médica:TOTAL"]')).toContainText('78');
+  await page.pdf({path:`${artifactRoot}/esf-producao-fiel-fixture.pdf`,preferCSSPageSize:true,printBackground:true});
 });

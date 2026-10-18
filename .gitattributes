@@ -1,0 +1,2 @@
+# Keep the supplied revised vector forms byte-identical on every platform.
+public/esf/revisados/*.svg -text

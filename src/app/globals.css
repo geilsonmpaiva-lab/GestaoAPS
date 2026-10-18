@@ -500,9 +500,35 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .esf-report thead th { background:#edf4f1; }
 .esf-report caption { text-align:left; font-weight:700; padding:8px 0; }
 .esf-print-page { max-width:1400px; margin:auto; }
+.esf-paper-screen-note { padding:20px; background:#edf4f1; }
+.esf-paper-screen-note h2 { margin:0 0 8px; }
+.esf-paper-sheet { background:white; border:1px solid #ccd6d2; margin:20px auto; padding:8px; max-width:1400px; }
+.esf-paper-strip,.esf-paper-foot { font:12px Arial,sans-serif; color:#263b36; overflow-wrap:anywhere; }
+.esf-paper-strip { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; padding:6px; border-bottom:1px solid #ccd6d2; }
+.esf-source-canvas { display:block; width:100%; height:auto; }
+.esf-paper-foot { padding:6px; }
+.esf-paper-annex { padding:20px; background:white; overflow-wrap:anywhere; }
+.esf-paper-annex table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:12px; }
+.esf-paper-annex th,.esf-paper-annex td { padding:8px; border:1px solid #899e96; text-align:left; vertical-align:top; overflow-wrap:anywhere; }
 .esf-print-controls { padding:20px; background:#edf4f1; }
 .esf-print-controls button { padding:12px 18px; border-radius:6px; background:#175f4c; color:white; border:0; font-weight:700; }
 @media print {
+  @page esf-fidelity-landscape { size:A4 landscape; margin:5mm; }
+  @page esf-fidelity-portrait { size:A4 portrait; margin:5mm; }
+  @page esf-fidelity-annex { size:A4 landscape; margin:10mm; }
+  .esf-print-page.esf-faithful-print { page:auto; }
+  .esf-paper-screen-note { display:none!important; }
+  .esf-paper-sheet { margin:0; padding:0; border:0; max-width:none; break-after:page; break-inside:avoid; display:flex; flex-direction:column; }
+  .esf-paper-landscape { page:esf-fidelity-landscape; width:287mm; height:198mm; }
+  .esf-paper-portrait { page:esf-fidelity-portrait; width:200mm; height:285mm; }
+  .esf-paper-strip { font-size:7pt; min-height:5mm; padding:0; flex-wrap:nowrap; flex:none; }
+  .esf-source-canvas { width:100%; height:calc(100% - 12mm); flex:1; min-height:0; }
+  .esf-paper-foot { font-size:6pt; padding:1mm 0; flex:none; }
+  .esf-paper-annex { page:esf-fidelity-annex; padding:0; font-size:10pt; }
+  .esf-paper-annex table { font-size:9pt; }
+  .esf-paper-annex th,.esf-paper-annex td { padding:1mm 2mm; }
+  .esf-paper-annex tr { break-inside:avoid; }
+  .esf-paper-annex thead { display:table-header-group; }
   @page esf-map { size:A4 landscape; margin:10mm; }
   .esf-print-page { page:esf-map; max-width:none; margin:0; }
   .esf-print-controls { display:none!important; }
