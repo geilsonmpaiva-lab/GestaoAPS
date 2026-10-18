@@ -49,3 +49,24 @@ Validação executada nesta preparação: 125 testes unitários/API, três teste
 - Hashes dos registros originais de organização, unidade, perfil e vínculo foram conferidos antes/depois e permaneceram iguais. A revisão automática recusou uma varredura de hashes de todas as tabelas; não houve nova tentativa nem alegação de verificação integral dos registros.
 - Advisors consultados: ESF opera por RPC com grants diretos revogados (INFO sem policies); permanecem avisos sobre RPCs SECURITY DEFINER intencionais, extensão pública e configurações Auth. Referências: [RPCs](https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable), [extensão](https://supabase.com/docs/guides/database/database-linter?lint=0014_extension_in_public), [senhas](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection), [MFA](https://supabase.com/docs/guides/auth/auth-mfa). Não foram alteradas configurações globais de segurança para eliminar avisos.
 - SMTP próprio, restauração externa e aparelhos físicos continuam exigindo validação específica. Não habilitar coleta de dados sensíveis reais.
+
+## Ciclo autenticado validado em 18/10/2026
+
+Executado `tests/integration/cycle.spec.ts` no build integrado local, conectado ao Supabase autorizado, sem mocks de dados ou comandos. Cada repetição criou registros novos identificados como `[HOMOLOGAÇÃO]`; os registros anteriores, inclusive tentativas parciais de teste, foram preservados. Não houve reset ou limpeza do banco compartilhado.
+
+Jornada aprovada com sessões independentes:
+
+- Administrador: seleciona UBS A, cadastra conhecimento, cria versão, envia à revisão, aprova e publica; cadastra indicador com fórmula estruturada e meta 90; cadastra protocolo referenciado ao conhecimento, checklist numérico, vínculo de fórmula, revisão, aprovação e publicação.
+- Gerente A: inicia execução, salva resposta 70, envia CSV sintético privado com integridade confirmada e conclui execução; o servidor gera medição 70 / `FORA_META`. Reenvio do comando retorna a mesma medição, sem duplicar. Registra análise crítica, desvio, plano, ação 5W2H, progresso, conclusão e eficácia.
+- Gerente A: agenda reunião, registra pauta e presença de colega autorizado, inicia, cria encaminhamento, converte em ação e encerra com ata.
+- Leitor B: não acessa o protocolo nem a evidência da UBS A por IDs diretos, não cria registros e não exporta sem a operação `exportar`. A carga de sincronização da UBS B não contém o protocolo A.
+- Administrador cadastra novo conhecimento na UBS B após confirmação da troca de contexto: leitor B consulta e gerente A recebe bloqueio. Card de medições fora da meta reconcilia com o total da lista e contém a medição criada.
+
+Correções entregues:
+
+1. Exportação passa a exigir módulo habilitado e permissão `exportar`, aplica organização/UBS selecionadas, rejeita ampliação de UBS via URL e exclui registros com soft delete. Seis testes unitários de regressão.
+2. A validação de participantes/encaminhamentos fazia um JOIN em perfis sob RLS do gerente e rejeitava colegas municipais legítimos. A migration `20261018151205_fix_meeting_membership_visibility.sql` reutiliza `read_workspace_people`, mantendo o trigger `SECURITY INVOKER`, as policies e os grants existentes. O usuário autorizou expressamente aplicar esta função no banco compartilhado **após** testes locais. A falha foi reproduzida localmente; os oito novos casos e a suíte SQL completa passaram antes da aplicação remota. Somente o histórico novo foi alinhado à versão canônica do arquivo.
+
+Resultados finais: 131 testes unitários/API (21 arquivos), três testes de configuração, 184 testes SQL/RLS locais (sete arquivos), duas jornadas autenticadas integradas e 84 testes Playwright de regressão em demonstração (Chromium desktop/mobile e WebKit mobile). Lint, typecheck, build integrado e diff check aprovados. Advisors sem novo alerta; permanecem os avisos anteriores documentados acima. Nenhuma configuração global de Auth foi alterada.
+
+Limites da evidência: as jornadas completas automatizadas usaram o frontend local com o banco de homologação real. A prévia hospedada foi conferida no navegador autenticado; a execução anônima automatizada remota continua protegida pelo login da Vercel, que não foi desativado. A suíte de demonstração e os testes SQL locais não substituem homologação em aparelhos físicos, revogação/expiração offline, SMTP, restauração, carga ou aceite institucional. Não há liberação para dados sensíveis reais nem promoção do deploy de produção.

@@ -5,5 +5,5 @@ if (!["127.0.0.1", "localhost", "gestaoaps-git-codex-cnes-ux-release-qua-lean-sa
 export default defineConfig({
   testDir: "./tests/integration", workers: 1, timeout: 120_000, expect: { timeout: 30_000 }, retries: 0,
   reporter: [["line"], ["html", { outputFolder: "playwright-report/staging", open: "never" }]],
-  outputDir: "test-results/staging", use: { baseURL, ...devices["Desktop Chrome"], serviceWorkers: "block", screenshot: "only-on-failure", trace: "off" },
+  outputDir: "test-results/staging", use: { baseURL, ...devices["Desktop Chrome"], actionTimeout: 20_000, navigationTimeout: 30_000, serviceWorkers: "block", screenshot: "only-on-failure", trace: "off" },
 });

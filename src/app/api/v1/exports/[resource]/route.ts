@@ -4,6 +4,9 @@ import {z} from "zod";
 import {modules} from "@/lib/modules";
 import {safeSpreadsheetValue,toCsv} from "@/lib/server/export";
 import {createSupabaseServerClient,isDemoMode,requireActor} from "@/lib/server/supabase";
+import {loadWorkspaceContext} from "@/lib/server/workspace";
+
+const exportModules:Record<string,string>={protocols:"protocolos",indicators:"indicadores",actions:"melhoria",meetings:"reunioes",audits:"qualidade",people:"pessoas",assets:"patrimonio",inventory:"estoque","safety-events":"seguranca",ombudsman:"ouvidoria"};
 
 const definitions:Record<string,{table:string;columns:string[];demo?:string;sensitive?:boolean}>={
   protocols:{table:"protocols",columns:["id","code","title","domain","status","version","created_at","updated_at"],demo:"protocolos"},
@@ -21,9 +24,30 @@ export const dynamic="force-dynamic";
 export async function GET(request:NextRequest,context:{params:Promise<{resource:string}>}){
   if(!await requireActor())return NextResponse.json({error:"Não autenticado."},{status:401});const{resource}=await context.params;const definition=definitions[resource];if(!definition)return NextResponse.json({error:"Exportação não disponível."},{status:404});
   const format=request.nextUrl.searchParams.get("format")||"xlsx";if(!["csv","xlsx"].includes(format))return NextResponse.json({error:"Formato inválido."},{status:422});const unitId=request.nextUrl.searchParams.get("unitId");if(unitId&&!z.uuid().safeParse(unitId).success)return NextResponse.json({error:"UBS inválida."},{status:422});
+  const demo=isDemoMode();
+  const workspace=demo?null:await loadWorkspaceContext();
+  const domain=exportModules[resource];
+  if(workspace&&(!workspace.enabledModules.includes(domain)||!workspace.permissions.some(p=>(p.domain==="*"||p.domain===domain)&&(p.operations.includes("*")||p.operations.includes("exportar")))))return NextResponse.json({error:"Seu perfil não permite exportar estes registros."},{status:403});
+  if(workspace&&unitId&&(workspace.unitId?unitId!==workspace.unitId:!workspace.scopes.some(s=>s.organizationId===workspace.organizationId&&s.unitId===unitId)))return NextResponse.json({error:"UBS fora do contexto autorizado."},{status:403});
+  const effectiveUnit=unitId??workspace?.unitId??null;
   let rows:Record<string,unknown>[]=[];
   if(isDemoMode()){rows=(definition.demo?modules[definition.demo].records:[]).map((row)=>({...row}));}
-  else{const client=await createSupabaseServerClient();if(definition.sensitive){if(!unitId)return NextResponse.json({error:"Selecione uma UBS para exportar dados restritos."},{status:422});const device=request.headers.get("x-device-id");const{data,error}=await client.rpc("read_sensitive_records",{p_entity_type:definition.table,p_unit_id:unitId,p_limit:50,p_device_id:device&&z.uuid().safeParse(device).success?device:null,p_purpose:`Exportação autorizada ${format.toUpperCase()}`});if(error)return NextResponse.json({error:error.code==="42501"?"Exportação restrita ou não habilitada.":"Falha na exportação.",code:error.code},{status:error.code==="42501"?403:422});rows=Array.isArray(data)?data as Record<string,unknown>[]:[];}else{let query=client.from(definition.table).select(definition.columns.join(",")).limit(1000);if(unitId)query=query.eq("unit_id",unitId);const{data,error}=await query;if(error)return NextResponse.json({error:"Falha na exportação.",code:error.code},{status:422});rows=(data??[]) as unknown as Record<string,unknown>[];}}
+  else{
+    const client=await createSupabaseServerClient();
+    if(definition.sensitive){
+      if(!effectiveUnit)return NextResponse.json({error:"Selecione uma UBS para exportar dados restritos."},{status:422});
+      const device=request.headers.get("x-device-id");
+      const{data,error}=await client.rpc("read_sensitive_records",{p_entity_type:definition.table,p_unit_id:effectiveUnit,p_limit:50,p_device_id:device&&z.uuid().safeParse(device).success?device:null,p_purpose:`Exportação autorizada ${format.toUpperCase()}`});
+      if(error)return NextResponse.json({error:error.code==="42501"?"Exportação restrita ou não habilitada.":"Falha na exportação.",code:error.code},{status:error.code==="42501"?403:422});
+      rows=(Array.isArray(data)?data as Record<string,unknown>[]:[]).filter(row=>row.organization_id===workspace!.organizationId&&row.unit_id===effectiveUnit);
+    }else{
+      let query=client.from(definition.table).select(definition.columns.join(",")).eq("organization_id",workspace!.organizationId).is("deleted_at",null).limit(1000);
+      if(effectiveUnit)query=query.eq("unit_id",effectiveUnit);
+      const{data,error}=await query;
+      if(error)return NextResponse.json({error:"Falha na exportação.",code:error.code},{status:422});
+      rows=(data??[]) as unknown as Record<string,unknown>[];
+    }
+  }
   const filename=`sgc-ubs-${resource}-${new Date().toISOString().slice(0,10)}`;
   if(format==="csv")return new NextResponse(toCsv(definition.columns,rows),{headers:{"content-type":"text/csv; charset=utf-8","content-disposition":`attachment; filename="${filename}.csv"`,"cache-control":"no-store"}});
   const workbook=new ExcelJS.Workbook();workbook.creator="SGC-UBS";workbook.created=new Date();const sheet=workbook.addWorksheet("Dados");sheet.columns=definition.columns.map((column)=>({header:column,key:column,width:Math.min(40,Math.max(14,column.length+2))}));for(const row of rows)sheet.addRow(Object.fromEntries(definition.columns.map((column)=>[column,safeSpreadsheetValue(row[column])])));sheet.getRow(1).font={bold:true};sheet.autoFilter={from:{row:1,column:1},to:{row:Math.max(1,sheet.rowCount),column:definition.columns.length}};const buffer=await workbook.xlsx.writeBuffer();return new NextResponse(new Uint8Array(buffer),{headers:{"content-type":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","content-disposition":`attachment; filename="${filename}.xlsx"`,"cache-control":"no-store"}});
