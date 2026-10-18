@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { NextResponse } from 'next/server';
+import { isSameOriginRequest } from '@/lib/server/request-origin';
 import { createSupabaseServerClient, isDemoMode, requireActor } from '@/lib/server/supabase';
 import { loadWorkspaceContext } from '@/lib/server/workspace';
 import { commandError } from '@/lib/server/command-response';
@@ -17,7 +18,7 @@ export async function GET(request: Request) {
 }
 export async function POST(request: Request) {
   if (!await requireActor()) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
-  if (request.headers.get('origin') && request.headers.get('origin') !== new URL(request.url).origin) return NextResponse.json({ error: 'Origem não permitida.' }, { status: 403 });
+  if (!isSameOriginRequest(request)) return NextResponse.json({ error: 'Origem não permitida.' }, { status: 403 });
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: 'Vínculo inválido.' }, { status: 422 });
   const workspace = await loadWorkspaceContext();

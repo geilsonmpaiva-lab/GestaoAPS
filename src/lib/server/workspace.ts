@@ -207,6 +207,8 @@ export async function loadWorkspaceContext(): Promise<WorkspaceContext> {
   const canRead = (slug: string) => permissions.some((item) => (item.domain === "*" || item.domain === (moduleDomain[slug] ?? slug)) && (item.operations.includes("*") || item.operations.includes("visualizar")));
   const enabledModules = Object.keys(modules).filter((slug) => canRead(slug) && (core.includes(slug) || flagEnabled(slug === "seguranca" ? "safety_events" : slug === "ouvidoria" ? "ombudsman" : slug) || flagEnabled(`module.${slug}`)));
   if (flagEnabled('esf.producao') && canRead('esf.producao')) enabledModules.push('formularios-esf');
+  // Only the synthetic Preview gets the paper-map sandbox; institutional flags remain untouched.
+  if (!enabledModules.includes('formularios-esf') && process.env.SGC_ENVIRONMENT === 'staging' && process.env.VERCEL_ENV !== 'production' && scope.organizationId === '362db1a9-bfdd-4334-9436-46b1c0117eab' && scope.unitId && permissions.some(p => (p.domain === '*' || p.domain.startsWith('esf.')) && p.operations.includes('visualizar'))) enabledModules.push('formularios-esf');
   const userName = text(profile?.name) || auth.user.email || "Usuário";
   return {
     ...scope,

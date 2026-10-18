@@ -6,6 +6,8 @@ import { commonEsfFields, esfTemplates } from '@/lib/esf/catalog';
 import { canViewEsf, loadEsfProduction, productionFiltersSchema } from '@/lib/server/esf';
 import { loadWorkspaceContext } from '@/lib/server/workspace';
 import type { EsfProductionData } from '@/lib/esf/production';
+import { loadEsfMaps, syntheticMapsEnabled, type MapListData } from '@/lib/server/esf-maps';
+import { EsfMapEditor } from '@/components/esf-map-editor';
 
 export default async function EsfFormPage({ params, searchParams }: { params: Promise<{ form: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { form } = await params;
@@ -15,6 +17,11 @@ export default async function EsfFormPage({ params, searchParams }: { params: Pr
   const query = await searchParams;
   const parsed = productionFiltersSchema.safeParse(query);
   let data: EsfProductionData | undefined; let error = '';
+  let maps: MapListData | undefined;
+  if (form !== 'producao' && syntheticMapsEnabled(workspace)) {
+    try { maps = await loadEsfMaps(workspace, form, typeof query.team === 'string' ? query.team : undefined, typeof query.map === 'string' ? query.map : undefined); }
+    catch { error = 'Não foi possível abrir este mapa ou equipe. Verifique seu acesso ou tente novamente.'; }
+  }
   if (form === 'producao' && canViewEsf(workspace) && parsed.success) {
     try { data = await loadEsfProduction(workspace, parsed.data); }
     catch (e) { error = e instanceof Error ? e.message : 'Falha na consulta.'; }
@@ -24,8 +31,10 @@ export default async function EsfFormPage({ params, searchParams }: { params: Pr
     <header className="module-heading"><div><p className="eyebrow">ESF-.pdf · página {template.page} · modelo v{template.version}</p><h1 className="page-title">{template.title}</h1></div></header>
     {!canViewEsf(workspace) ? <p role="alert">Acesso não autorizado.</p> : <>
     {form === 'producao' && (data && parsed.success ? <EsfProduction key={`${workspace.organizationId}:${workspace.unitId}:${JSON.stringify(parsed.data)}`} workspace={workspace} initial={data} filters={parsed.data} /> : <section className="v2-panel"><p role="alert">{error || 'Filtros inválidos. Escolha mês e equipe válidos.'}</p><Link href="/formularios-esf/producao" className="v2-secondary">Tentar novamente</Link></section>)}
-    <details className="v2-panel v2-section" open={form !== 'producao'}><summary>Dicionário do modelo e pendências de aprovação</summary>
-      <p className="v2-alert">{template.sensitive ? 'Modelo restrito: entrada de dados nominais não habilitada.' : 'Referência documental em rascunho; não representa catálogo institucional aprovado.'}</p>
+    {maps && <EsfMapEditor key={`${form}:${workspace.unitId}:${maps.teamId}:${maps.current?.id ?? 'new'}`} form={form} initial={maps} workspace={workspace} />}
+    {form !== 'producao' && error && <section className="v2-panel"><p role="alert">{error}</p><Link className="v2-secondary" href={`/formularios-esf/${form}`}>Tentar novamente</Link></section>}
+    <details className="v2-panel v2-section" open={form !== 'producao' && !maps}><summary>Dicionário do modelo e pendências de aprovação</summary>
+      <p className="v2-alert">{maps ? 'Modelo em homologação: somente dados sintéticos. Dados reais e aprovação institucional não habilitados.' : template.sensitive ? 'Modelo restrito: entrada de dados nominais não habilitada.' : 'Referência documental em rascunho; não representa catálogo institucional aprovado.'}</p>
       <ul>{template.pending.map(item => <li key={item}>{item}</li>)}</ul>
       <div className="esf-dictionary">{[...commonEsfFields, ...template.fields].map(field => <article key={`${field.group}:${field.key}`}><span className="eyebrow">{field.group}</span><h3>{field.label}</h3><p className="v2-muted">{({ text: 'Texto', date: 'Data', integer: 'Quantidade inteira', decimal: 'Número com unidade', select: 'Seleção estruturada', reference: 'Cadastro vinculado', attachment: 'Anexo privado', calculated: 'Preenchimento automático' })[field.type]}{field.unit ? ` · ${field.unit}` : ''}</p>{field.review && <p>{field.review}</p>}{field.options && <p>{field.options.join(' · ')}</p>}</article>)}</div>
     </details></>}

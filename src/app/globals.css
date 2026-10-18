@@ -483,3 +483,42 @@ button, a { -webkit-tap-highlight-color: transparent; }
   body:has(.esf-monthly) tr { break-inside: avoid; }
   body:has(.esf-monthly) thead { display: table-header-group; }
 }
+.esf-map-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr)); gap:18px; margin:20px 0; }
+.esf-map-fields .esf-map-na { display:flex; align-items:flex-start; gap:8px; font-size:12px; }
+.esf-map-na input { width:16px; min-width:16px; height:16px; margin:2px 0 0; }
+.ux-v2 .v2-field .esf-map-na input { width:16px; min-width:16px; height:16px; min-height:16px; padding:0; flex:none; }
+.esf-report { background:white; color:#172b29; padding:20px; overflow-wrap:anywhere; }
+.esf-report h1 { font-size:24px; margin:12px 0; }
+.esf-report h2 { font-size:19px; margin:22px 0 12px; }
+.esf-report p { margin:8px 0; }
+.esf-report-meta { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr)); gap:12px; margin:16px 0; }
+.esf-report-meta dt { font-weight:700; }
+.esf-report-meta dd { margin:4px 0 0; }
+.esf-report-block { overflow-x:auto; margin:16px 0; }
+.esf-report table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:12px; }
+.esf-report th,.esf-report td { border:1px solid #748982; padding:8px; vertical-align:top; overflow-wrap:anywhere; text-align:left; }
+.esf-report thead th { background:#edf4f1; }
+.esf-report caption { text-align:left; font-weight:700; padding:8px 0; }
+.esf-print-page { max-width:1400px; margin:auto; }
+.esf-print-controls { padding:20px; background:#edf4f1; }
+.esf-print-controls button { padding:12px 18px; border-radius:6px; background:#175f4c; color:white; border:0; font-weight:700; }
+@media print {
+  @page esf-map { size:A4 landscape; margin:10mm; }
+  .esf-print-page { page:esf-map; max-width:none; margin:0; }
+  .esf-print-controls { display:none!important; }
+  .esf-report { padding:0; font-size:10pt; color:#000; }
+  .esf-report h1 { font-size:17pt; }
+  .esf-report h2 { font-size:13pt; break-after:avoid; }
+  .esf-report table { font-size:9pt; }
+  .esf-report th,.esf-report td { padding:2mm; }
+  .esf-report table thead { display:table-header-group; }
+  .esf-report table tfoot { display:table-row-group; }
+  .esf-report tr { break-inside:avoid; }
+  .esf-report-block { overflow:visible; break-inside:avoid; }
+  .esf-report caption,.esf-report thead { break-after:avoid; }
+  .esf-report-meta { grid-template-columns:repeat(3,1fr); }
+  .esf-annual-print { font-size:8pt!important; }
+  .esf-annual-print th,.esf-annual-print td { padding:1mm; }
+  .esf-annual-print th:nth-child(1) { width:20mm; }
+  .esf-annual-print th:nth-child(2) { width:63mm; }
+}

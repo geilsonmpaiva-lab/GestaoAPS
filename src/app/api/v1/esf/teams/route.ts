@@ -4,6 +4,7 @@ import { requireActor, isDemoMode, createSupabaseServerClient } from '@/lib/serv
 import { loadWorkspaceContext } from '@/lib/server/workspace';
 import { loadEsfTeams } from '@/lib/server/esf';
 import { commandError } from '@/lib/server/command-response';
+import { isSameOriginRequest } from '@/lib/server/request-origin';
 
 export async function GET() {
   if (!await requireActor()) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
@@ -12,7 +13,7 @@ export async function GET() {
 }
 export async function POST(request: Request) {
   if (!await requireActor()) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
-  if (request.headers.get('origin') && request.headers.get('origin') !== new URL(request.url).origin) return NextResponse.json({ error: 'Origem não permitida.' }, { status: 403 });
+  if (!isSameOriginRequest(request)) return NextResponse.json({ error: 'Origem não permitida.' }, { status: 403 });
   const parsed = teamSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: 'Confira a identificação, nome e área da equipe.' }, { status: 422 });
   const workspace = await loadWorkspaceContext();
