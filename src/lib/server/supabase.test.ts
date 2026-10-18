@@ -1,0 +1,12 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+const mocks=vi.hoisted(()=>({mode:vi.fn(),staging:vi.fn(),headers:vi.fn(),user:vi.fn(),rows:new Map<string,unknown>(),from:vi.fn(),gt:vi.fn()}));
+vi.mock('@/lib/runtime-mode',()=>({runtimeMode:mocks.mode}));
+vi.mock('@/lib/staging-access',()=>({canUseStaging:mocks.staging}));
+vi.mock('next/headers',()=>({headers:mocks.headers,cookies:async()=>({getAll:()=>[],set:vi.fn()})}));
+vi.mock('@supabase/ssr',()=>({createServerClient:()=>({auth:{getUser:mocks.user},from:(table:string)=>{mocks.from(table);const chain={select:()=>chain,eq:()=>chain,is:()=>chain,gt:(...args:unknown[])=>{mocks.gt(...args);return chain;},lte:()=>chain,or:()=>chain,limit:()=>chain,maybeSingle:async()=>({data:mocks.rows.get(table)??null,error:null})};return chain;}})}));
+import {requireActor} from './supabase';
+beforeEach(()=>{vi.clearAllMocks();mocks.rows.clear();vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL','https://synthetic.supabase.co');vi.stubEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY','public-test-key');mocks.mode.mockReturnValue('integrated');mocks.staging.mockResolvedValue(true);mocks.user.mockResolvedValue({data:{user:{id:'actor',email:'synthetic@example.invalid'}},error:null});mocks.headers.mockResolvedValue(new Headers({'x-device-id':'00000000-0000-4000-8000-000000000001'}));mocks.rows.set('devices',{organization_id:'org'});mocks.rows.set('profiles',{status:'ACTIVE'});mocks.rows.set('memberships',{id:'member'});});
+it('accepts an active device, profile and membership',async()=>{expect(await requireActor()).toMatchObject({id:'actor'});expect(mocks.gt).toHaveBeenCalledWith('last_verified_at',expect.any(String));});
+it.each(['devices','profiles','memberships'])('blocks replay when %s is no longer authorized',async table=>{mocks.rows.delete(table);expect(await requireActor()).toBeNull();});
+it('does not trust a malformed device identifier',async()=>{mocks.headers.mockResolvedValue(new Headers({'x-device-id':'invalid'}));expect(await requireActor()).toBeNull();expect(mocks.from).not.toHaveBeenCalled();});
+it('preserves normal interactive authentication without a device header',async()=>{mocks.headers.mockResolvedValue(new Headers());expect(await requireActor()).toMatchObject({id:'actor'});expect(mocks.from).not.toHaveBeenCalled();});

@@ -8,6 +8,8 @@ import type { WorkspaceContext } from "@/lib/server/workspace";
 import type { SavedDraft } from "./draft-tools";
 import Link from "next/link";
 import { safeReturnTo } from "@/lib/ui-labels";
+import { verifyVault, synchronizeWork, workPrefix, type PendingWork } from "@/lib/offline/work";
+import { attachmentPrefix,synchronizeAttachments,type PendingAttachment } from "@/lib/offline/attachments";
 
 export function OfflineStatus({workspace}: {workspace?:WorkspaceContext}) {
   const [ready, setReady] = useState(false);
@@ -36,22 +38,26 @@ export function OfflineStatus({workspace}: {workspace?:WorkspaceContext}) {
   useEffect(() => {
     const refresh = async () => {
       const active = OfflineVault.active;
-      if (!active) { setVault(null); setDrafts([]); return; }
+      if (!active) { setVault(null); setDrafts([]);setPending(0); return; }
       try {
         if (workspace) await active.assertIdentity(workspace.userId,workspace.organizationId);
-        setPending((await active.queued()).length); setVault(active);
+        const pendingWork=workspace?(await active.listRecords<PendingWork>(workPrefix(workspace))).filter(row=>row.value.status!=='confirmed').length:0;
+        const pendingFiles=workspace?(await active.listRecords<PendingAttachment>(attachmentPrefix(workspace))).filter(row=>row.value.status!=='confirmed').length:0;
+        setPending((await active.queued()).length+pendingWork+pendingFiles); setVault(active);
         if (workspace) setDrafts((await active.listRecords<SavedDraft>(`draft:${workspace.userId}:${workspace.organizationId}:${workspace.unitId ?? 'org'}:`)).map(r=>r.value));
       } catch { setVault(null); setDrafts([]); setMessage('Desbloqueie e valide o cofre para continuar.'); }
     };
     void refresh();
     window.addEventListener('sgc-vault-change',refresh);
-    return () => window.removeEventListener('sgc-vault-change',refresh);
+    const reconnect=async()=>{const active=OfflineVault.active;if(!active)return;try{await verifyVault(active,workspace);await refresh();}catch(error){if(!(error instanceof TypeError)){OfflineVault.active=null;setVault(null);setDrafts([]);setPending(0);setMessage(error instanceof Error?error.message:'Cofre bloqueado.');}}};
+    window.addEventListener('online',reconnect);
+    const timer=window.setInterval(()=>void refresh(),30_000);
+    return () => {window.removeEventListener('sgc-vault-change',refresh);window.removeEventListener('online',reconnect);window.clearInterval(timer);};
   },[workspace]);
 
   async function verifyDevice(nextVault:OfflineVault) {
-    const response = await fetch('/api/v1/devices/register',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({deviceId:nextVault.deviceId,organizationId:workspace?.organizationId,label:'Dispositivo de trabalho',platform:navigator.userAgent.slice(0,240)})});
-    if (!response.ok) throw new Error('Dispositivo não autorizado. Entre novamente ou contate a administração. Nenhum item pendente foi descartado.');
-    await nextVault.markOnlineVerification();
+    await verifyVault(nextVault,workspace);
+    if(workspace)await nextVault.putRecord('workspace',workspace);
   }
 
   async function unlock() {
@@ -80,6 +86,7 @@ export function OfflineStatus({workspace}: {workspace?:WorkspaceContext}) {
     try {
       await verifyDevice(vault);
       if (workspace) await vault.assertIdentity(workspace.userId,workspace.organizationId);
+      if(workspace){await synchronizeAttachments(vault,workspace);await synchronizeWork(vault,workspace);}
       const operations = await vault.queued();
       for (let offset=0;offset<operations.length;offset+=100) {
         const response = await fetch("/api/v1/sync/batches", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cursor: null, operations:operations.slice(offset,offset+100) }) });
@@ -89,8 +96,11 @@ export function OfflineStatus({workspace}: {workspace?:WorkspaceContext}) {
         await vault.acknowledge(accepted);
       }
       const remaining = await vault.queued();
-      setPending(remaining.length);
-      setMessage(remaining.length ? `${remaining.length} operação(ões) com falha ou conflito. Itens preservados para revisão.` : "Fila enviada. Rascunhos locais precisam ser abertos e confirmados separadamente.");
+      const pendingWork=workspace?(await vault.listRecords<PendingWork>(workPrefix(workspace))).filter(row=>row.value.status!=='confirmed').length:0;
+      const pendingFiles=workspace?(await vault.listRecords<PendingAttachment>(attachmentPrefix(workspace))).filter(row=>row.value.status!=='confirmed').length:0;
+      const total=remaining.length+pendingWork+pendingFiles;
+      setPending(total);
+      setMessage(total ? `${total} item(ns) com falha ou conflito. Itens preservados para revisão.` : "Fila confirmada pelo servidor. Rascunhos não enfileirados precisam ser abertos separadamente.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "A sincronização será tentada novamente.");
     } finally {setBusy(false);}
@@ -104,6 +114,9 @@ export function OfflineStatus({workspace}: {workspace?:WorkspaceContext}) {
         <div className="dialog-icon"><ShieldCheck size={22} /></div>
         <Dialog.Title className="dialog-title">Cofre offline deste dispositivo</Dialog.Title>
         <Dialog.Description id="offline-description" className="dialog-description">Rascunhos e operações ficam criptografados e aguardam confirmação do servidor.</Dialog.Description>
+        {/* Full navigation is required for the public service-worker fallback. */}
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+        <a href="/offline">Abrir área offline — rascunhos, fila e conflitos</a>
         {!vault ? <div className="vault-form"><label htmlFor="offline-pin">PIN local de 6 a 12 dígitos</label><div className="login-input"><KeyRound size={16} /><input id="offline-pin" inputMode="numeric" type="password" autoComplete="off" value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 12))} /></div><button className="primary-button" disabled={busy} onClick={unlock}>Desbloquear cofre</button></div> : <button className="primary-button" disabled={!online || busy} onClick={synchronize}><RefreshCw size={15} />Sincronizar agora</button>}
         {drafts.length>0 && <section><h3>Rascunhos nesta UBS ({drafts.length})</h3><ul>{drafts.map((draft,i)=><li key={i}><Dialog.Close asChild><Link href={safeReturnTo(draft.href)}>{draft.title}</Link></Dialog.Close> — salvo {new Date(draft.updatedAt).toLocaleString('pt-BR')}</li>)}</ul></section>}
         <div className="vault-message" role="status">{message}</div>

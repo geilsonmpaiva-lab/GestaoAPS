@@ -7,7 +7,7 @@ const DB_VERSION = 1;
 const MAX_OFFLINE_MS = 72 * 60 * 60 * 1000;
 
 type CipherRecord = { id: string; iv: string; value: string; updatedAt: number };
-type VaultMeta = { id: "vault"; salt: string; verifiedAt: number; deviceId: string; userId?: string; organizationId?: string };
+type VaultMeta = { id: "vault"; salt: string; verifiedAt: number; deviceId: string; userId?: string; organizationId?: string; blocked?: boolean;lastSeenAt?:number };
 const connections = new Set<IDBDatabase>();
 
 function encode(bytes: Uint8Array) {
@@ -64,7 +64,15 @@ async function decrypt<T>(key: CryptoKey, record: CipherRecord): Promise<T> {
 
 export class OfflineVault {
   static active: OfflineVault | null = null;
-  private constructor(private db: IDBDatabase, private key: CryptoKey, public readonly deviceId: string) {}
+  private constructor(private db: IDBDatabase, private key: CryptoKey, public readonly deviceId: string, public readonly identity: {userId?:string;organizationId?:string}) {}
+
+  static async resume(pin: string) {
+    const db=await openDatabase();
+    const meta=await transact<VaultMeta|undefined>(db,'meta','readonly',store=>store.get('vault'));
+    db.close(); connections.delete(db);
+    if(!meta?.userId||!meta.organizationId) throw new Error('Prepare o cofre online com sua conta antes de usar o modo offline.');
+    return OfflineVault.unlock(pin,{userId:meta.userId,organizationId:meta.organizationId});
+  }
 
   static async unlock(pin: string, identity?: { userId: string; organizationId: string }) {
     if (!/^[0-9]{6,12}$/.test(pin)) throw new Error("Use um PIN local de 6 a 12 dígitos.");
@@ -89,13 +97,19 @@ export class OfflineVault {
       await transact(db, "records", "readwrite", (store) => store.put(verifierRecord));
     }
     if (identity && !meta.userId) await transact(db, 'meta', 'readwrite', store => store.put({ ...meta, ...identity }));
-    const vault = new OfflineVault(db, key, meta.deviceId);
+    const vault = new OfflineVault(db, key, meta.deviceId, {userId:meta.userId,organizationId:meta.organizationId});
     return vault;
   }
 
   async assertAuthorized() {
-    const meta = await transact<VaultMeta>(this.db, 'meta', 'readonly', store => store.get('vault'));
-    if (!meta || !meta.verifiedAt || Date.now() < meta.verifiedAt || Date.now() - meta.verifiedAt > MAX_OFFLINE_MS) throw new Error('Cofre expirado. Reconecte e valide o dispositivo.');
+    const now=Date.now();
+    const meta=await new Promise<VaultMeta|undefined>((resolve,reject)=>{
+      const transaction=this.db.transaction('meta','readwrite');const store=transaction.objectStore('meta');const read=store.get('vault');
+      let current:VaultMeta|undefined;
+      read.onsuccess=()=>{current=read.result;if(current&&now>(current.lastSeenAt??0))store.put({...current,lastSeenAt:now});};
+      transaction.oncomplete=()=>resolve(current);transaction.onabort=()=>reject(transaction.error??new Error('Falha ao validar o cofre.'));
+    });
+    if (!meta || meta.blocked || !meta.verifiedAt || now+5*60*1000 < Math.max(meta.verifiedAt,meta.lastSeenAt??0) || now - meta.verifiedAt > MAX_OFFLINE_MS) throw new Error('Cofre expirado ou acesso revogado. Reconecte e valide o dispositivo. As pendências cifradas foram preservadas.');
   }
 
   async assertIdentity(userId: string, organizationId: string) {
@@ -114,9 +128,25 @@ export class OfflineVault {
 
   async removeRecord(id: string) { await this.assertAuthorized(); await transact(this.db, 'records', 'readwrite', store => store.delete(id)); window.dispatchEvent(new Event('sgc-vault-change')); }
 
-  async markOnlineVerification() {
+  async invalidateAuthorization() {
+    const meta=await transact<VaultMeta>(this.db,'meta','readonly',store=>store.get('vault'));
+    await transact(this.db,'meta','readwrite',store=>store.put({...meta,blocked:true,verifiedAt:0}));
+    OfflineVault.active=null;
+    window.dispatchEvent(new Event('sgc-vault-change'));
+  }
+
+  async verificationContext<T>() {
+    // Only available after PIN verification; used to revalidate an expired
+    // authorization, not to render expired business data.
+    const record=await transact<CipherRecord|undefined>(this.db,'records','readonly',store=>store.get('workspace'));
+    return record?decrypt<T>(this.key,record):null;
+  }
+
+  async markOnlineVerification(verifiedAt = new Date().toISOString()) {
+    const timestamp=Date.parse(verifiedAt);
+    if(!Number.isFinite(timestamp)||Math.abs(timestamp-Date.now())>5*60*1000) throw new Error('Horário do dispositivo divergente do servidor. Corrija o relógio antes de continuar.');
     const meta = await transact<VaultMeta>(this.db, "meta", "readonly", (store) => store.get("vault"));
-    await transact(this.db, "meta", "readwrite", (store) => store.put({ ...meta, verifiedAt: Date.now() }));
+    await transact(this.db, "meta", "readwrite", (store) => store.put({ ...meta, blocked:false, verifiedAt: timestamp,lastSeenAt:Date.now() }));
   }
 
   async putRecord<T>(id: string, value: T) {
@@ -167,7 +197,10 @@ export class OfflineVault {
     });
     if ("caches" in window) {
       const keys = await caches.keys();
-      await Promise.all(keys.filter((key) => key.startsWith("sgc-ubs-")).map((key) => caches.delete(key)));
+      // Public shell/JS contains no user data and must survive logout so the
+      // worker can still show the locked screen. All encrypted account data above
+      // is deleted; historical non-public caches are removed as well.
+      await Promise.all(keys.filter((key) => key.startsWith("sgc-ubs-")&&!key.startsWith('sgc-ubs-public-')).map((key) => caches.delete(key)));
     }
   }
 }

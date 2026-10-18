@@ -1,0 +1,10 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+const mocks=vi.hoisted(()=>({actor:vi.fn(),demo:vi.fn(),single:vi.fn(),workspace:vi.fn()}));
+vi.mock('@/lib/server/supabase',()=>({requireActor:mocks.actor,isDemoMode:mocks.demo,createSupabaseServerClient:async()=>({from:()=>({select:()=>({eq:()=>({maybeSingle:mocks.single})})})})}));
+vi.mock('@/lib/server/workspace',()=>({loadWorkspaceContext:mocks.workspace}));
+import {GET} from './route';
+beforeEach(()=>{vi.clearAllMocks();mocks.actor.mockResolvedValue({id:'synthetic'});mocks.demo.mockReturnValue(false);mocks.single.mockResolvedValue({data:{status:'ACTIVE'}});mocks.workspace.mockResolvedValue({userId:'synthetic'});});
+it('rejects an expired session',async()=>{mocks.actor.mockResolvedValue(null);expect((await GET()).status).toBe(401);});
+it('returns explicit denial for a suspended profile so the vault quarantines cached data',async()=>{mocks.single.mockResolvedValue({data:{status:'SUSPENDED'}});expect((await GET()).status).toBe(403);expect(mocks.workspace).not.toHaveBeenCalled();});
+it('does not treat a database outage as authorization renewal',async()=>{mocks.single.mockResolvedValue({error:{message:'Unavailable'}});expect((await GET()).status).toBe(503);expect(mocks.workspace).not.toHaveBeenCalled();});
+it('never caches the authorized context in plaintext',async()=>{const response=await GET();expect(response.status).toBe(200);expect(response.headers.get('cache-control')).toContain('no-store');});

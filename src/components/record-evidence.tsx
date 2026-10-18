@@ -1,8 +1,11 @@
 "use client";
-import { useRef, useState } from "react";
+import { useContext, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/client/supabase";
 import type { DetailRow } from "@/lib/server/record-detail";
+import { DraftWorkspace } from "./draft-tools";
+import { OfflineVault } from "@/lib/offline/vault";
+import { savePendingAttachment } from "@/lib/offline/attachments";
 
 export function RecordEvidence({ entityType, entityId, organizationId, unitId, attachments, canUpload }: { entityType: string; entityId: string; organizationId: string; unitId: string | null; attachments: DetailRow[]; canUpload: boolean }) {
   const router = useRouter();
@@ -10,6 +13,8 @@ export function RecordEvidence({ entityType, entityId, organizationId, unitId, a
   const pending = useRef<{ id: string; file: File; path: string; token: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const workspace=useContext(DraftWorkspace);
+  async function saveOffline(){try{const file=fileInput.current?.files?.[0];if(!file)throw new Error('Selecione o arquivo de evidência.');if(!workspace||!OfflineVault.active)throw new Error('Desbloqueie o cofre antes de guardar o anexo.');await savePendingAttachment(OfflineVault.active,workspace,file,entityType,entityId,unitId);setMessage('Anexo cifrado neste dispositivo. Aguardando envio; não é evidência confirmada.');}catch(error){setMessage(error instanceof Error?error.message:'Não foi possível guardar o anexo.');}}
   async function upload(event: React.FormEvent) {
     event.preventDefault();
     const file = fileInput.current?.files?.[0];
@@ -49,5 +54,5 @@ export function RecordEvidence({ entityType, entityId, organizationId, unitId, a
     } catch (error) { setMessage(error instanceof Error ? error.message : "Falha ao abrir arquivo."); }
   }
   return <section className="panel detail-section"><h2>Evidências</h2>{attachments.length ? <ul>{attachments.map(row => <li key={row.id}><button className="link-button" disabled={row.status !== "AVAILABLE"} onClick={() => download(row.id)}>{String(row.file_name)} — {row.status === "AVAILABLE" ? "Abrir arquivo verificado" : "Envio pendente"}</button></li>)}</ul> : <p>Nenhuma evidência vinculada.</p>}
-    {canUpload && <form className="detail-form" onSubmit={upload}><label>Arquivo de evidência<input ref={fileInput} type="file" required accept="application/pdf,image/jpeg,image/png,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" /></label><small>PDF, imagem, CSV ou XLSX, até 25 MB. Use apenas conteúdo institucional autorizado.</small><button className="primary-button" disabled={busy}>{busy ? "Enviando…" : "Enviar evidência"}</button></form>}{message && <p role="status">{message}</p>}</section>;
+    {canUpload && <form className="detail-form" onSubmit={upload}><label>Arquivo de evidência<input ref={fileInput} type="file" required accept="application/pdf,image/jpeg,image/png,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" /></label><small>PDF, imagem, CSV ou XLSX, até 25 MB. Use apenas conteúdo institucional autorizado.</small><button className="primary-button" disabled={busy}>{busy ? "Enviando…" : "Enviar evidência"}</button><button type="button" className="secondary-button" disabled={busy} onClick={saveOffline}>Guardar anexo cifrado para envio</button></form>}{message && <p role="status">{message}</p>}</section>;
 }

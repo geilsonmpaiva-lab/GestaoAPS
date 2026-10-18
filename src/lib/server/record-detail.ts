@@ -77,6 +77,7 @@ export async function loadRecordDetail(resource: string, id: string, workspace: 
   if (resource === "measurements") { relation("analyses", "critical_analyses", "measurement_id"); relation("nonconformities", "nonconformities", "origin_id"); }
   if (resource === "nonconformities") relation("action-plans", "action_plans", "origin_id");
   if (resource === "action-plans") { relation("actions", "actions", "action_plan_id"); relation("effectiveness", "effectiveness_checks", "action_plan_id"); }
+  if (resource === "actions") relation("comments", "action_comments", "action_id");
   if (resource === "meetings") { relation("agenda", "meeting_agenda_items", "meeting_id"); relation("participants", "meeting_participants", "meeting_id"); relation("referrals", "referrals", "meeting_id"); }
   relation("evidence", "evidence_links", "entity_id");
   for (const [name, table] of Object.entries({ indicators: "indicators", formulas: "indicator_formula_versions", knowledge: "knowledge_versions" })) {

@@ -2,6 +2,8 @@
 import { useContext, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DraftTools, DraftWorkspace } from "./draft-tools";
+import { OfflineVault } from "@/lib/offline/vault";
+import { queueWork } from "@/lib/offline/work";
 
 export type CommandField = { name: string; label: string; type?: "text" | "textarea" | "number" | "date" | "datetime-local" | "checkbox"; options?: { value: string; label: string }[]; required?: boolean; defaultValue?: string; min?: number; max?: number; minLength?: number; pattern?: string };
 export type CommandFormProps = { title: string; endpoint: string; expectedVersion?: number; fields?: CommandField[]; payload?: Record<string, unknown>; transform?: (values: Record<string, unknown>) => Record<string, unknown>; method?: "POST" | "PUT"; redirectResource?: string; children?: React.ReactNode; onSuccess?: (result: Record<string, unknown>) => void; disabled?: boolean; extraDraft?:{value:string;restore:(value:string)=>void} };
@@ -39,9 +41,13 @@ export function CommandForm({ title, endpoint, expectedVersion, fields = [], pay
     setBusy(true); setFailed(false); setMessage("");
     operation.current ??= crypto.randomUUID();
     try {
-      if (!navigator.onLine) throw new Error("Sem conexão. Salve o rascunho no dispositivo abaixo e confirme após reconectar.");
       const body = { ...payload, ...values, operationId: operation.current, ...(expectedVersion !== undefined ? { expectedVersion } : {}) };
       pendingBody.current ??= JSON.stringify(transform ? transform(body) : body);
+      if (!navigator.onLine) {
+        if(!workspace||!OfflineVault.active)throw new Error('Sem conexão. Desbloqueie o cofre e salve o rascunho antes de preparar o envio.');
+        await queueWork(OfflineVault.active,workspace,title,endpoint,method,JSON.parse(pendingBody.current));
+        setMessage('Aguardando envio. Operação cifrada neste dispositivo; a transição só terá efeito após confirmação do servidor.');return;
+      }
       const response = await fetch(endpoint, { method, headers: { "content-type": "application/json" }, body: pendingBody.current });
       const result = await response.json();
       if (response.status === 409) { setConflict(true); throw new Error("Este registro mudou. Revise a versão atual antes de reenviar. Seus campos permanecem nesta página."); }

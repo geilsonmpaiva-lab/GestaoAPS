@@ -9,6 +9,8 @@ export async function proxy(request: NextRequest) {
   if (mode === "unconfigured") return NextResponse.json({ error: "Serviço indisponível: configuração pendente." }, { status: 503, headers: { "Cache-Control": "no-store" } });
   // The callback establishes the session; it must be reachable before authentication.
   if (request.nextUrl.pathname === "/auth/confirm") return NextResponse.next();
+  // This page contains no session, tenant data or server queries.
+  if (request.nextUrl.pathname === "/offline") return NextResponse.next();
 
   let response = NextResponse.next({ request });
   const client = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
