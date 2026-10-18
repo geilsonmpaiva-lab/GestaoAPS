@@ -28,7 +28,7 @@ describe('offline allowlist and retry integrity',()=>{
     await synchronizeWork(vault,workspace);
     expect(fetcher).toHaveBeenCalledWith('/api/v1/offline/transitions',expect.anything());expect(saved.status).toBe(status==='confirmed'?'confirmed':status==='conflict'?'conflict':'failed');
   });
-  it.each(['indicators/00000000-0000-4000-8000-000000000001/targets','action-plans/00000000-0000-4000-8000-000000000001/actions','meetings/00000000-0000-4000-8000-000000000001/agenda','meetings/00000000-0000-4000-8000-000000000001/referrals'])('keeps non-idempotent %s as drafts',path=>expect(allowedOfflineCommand(`/api/v1/${path}`,'POST')).toBe(false));
+  it.each(['indicators/00000000-0000-4000-8000-000000000001/targets','action-plans/00000000-0000-4000-8000-000000000001/actions','meetings/00000000-0000-4000-8000-000000000001/agenda','meetings/00000000-0000-4000-8000-000000000001/referrals'])('accepts %s only through the snapshot-bound form adapter',path=>expect(allowedOfflineCommand(`/api/v1/${path}`,'POST')).toBe(true));
   it('blocks both protocol endpoint aliases when their version has a local conflict',async()=>{
     const id='00000000-0000-4000-8000-000000000001';
     const base={scope:{userId:'user',organizationId:'org',unitId:'unit'},method:'POST',body:{},createdAt:'2026-01-01'};
@@ -42,6 +42,21 @@ describe('offline allowlist and retry integrity',()=>{
     const vault={assertIdentity:vi.fn(),getRecord:vi.fn().mockResolvedValue({body:{operationId:'same',title:'old'}}),putRecord:vi.fn()} as unknown as OfflineVault;
     await expect(queueWork(vault,workspace,'Create','/api/v1/knowledge','POST',{operationId:'same',title:'changed'})).rejects.toThrow('outros dados');
     expect(vault.putRecord).not.toHaveBeenCalled();
+  });
+  it('captures attendance subject and snapshot version while retaining one operation id',async()=>{
+    const id='00000000-0000-4000-8000-000000000001',operationId='00000000-0000-4000-8000-000000000002';
+    const detail={resource:'meetings',record:{id,version:4},related:{agenda:[],participants:[],referrals:[]}};
+    const vault={deviceId:'device',assertIdentity:vi.fn(),getRecord:vi.fn((key:string)=>Promise.resolve(key.startsWith('snapshot:')?{detail}:null)),putRecord:vi.fn()} as unknown as OfflineVault;
+    const queued=await queueWork(vault,workspace,'Presença',`/api/v1/meetings/${id}/participants/${id}`,'PUT',{operationId,attended:false});
+    expect(queued.transition).toMatchObject({operationId,expectedVersion:4,payload:{userId:id,attended:false}});
+    expect(queued.body.operationId).toBe(operationId);
+  });
+  it('sends attendance to the additive gateway as POST, never an unsafe direct PUT',async()=>{
+    const id='00000000-0000-4000-8000-000000000001';
+    let item={id:'op',scope:{userId:'user',organizationId:'org',unitId:'unit'},endpoint:`/api/v1/meetings/${id}/participants/${id}`,method:'PUT',body:{},status:'pending',createdAt:'2026-01-01',transition:{operationId:'op'}} as unknown as import('./work').PendingWork;
+    const fetcher=vi.fn(async(url:string)=>url.endsWith('/context')?Response.json(workspace):url.endsWith('/register')?Response.json({verifiedAt:new Date().toISOString()}):Response.json({status:'confirmed'}));vi.stubGlobal('fetch',fetcher);
+    const vault={deviceId:'device',identity:{organizationId:'org'},verificationContext:vi.fn().mockResolvedValue(workspace),assertIdentity:vi.fn(),markOnlineVerification:vi.fn(),listRecords:vi.fn(async()=>[{id:'key',value:item}]),putRecord:vi.fn(async(_key:string,value:typeof item)=>{item=value;})} as unknown as OfflineVault;
+    await synchronizeWork(vault,workspace);expect(fetcher).toHaveBeenCalledWith('/api/v1/offline/forms',expect.objectContaining({method:'POST'}));expect(item.status).toBe('confirmed');
   });
   it('revocation locks authorization and never acknowledges pending items',async()=>{
     vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response('{}',{status:403})));

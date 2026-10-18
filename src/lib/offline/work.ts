@@ -3,12 +3,14 @@ import { OfflineVault } from "./vault";
 import type { WorkspaceContext } from "@/lib/server/workspace";
 import type {DetailData} from '@/lib/server/record-detail';
 import {criticalTransition,transitionSnapshot,type TransitionEnvelope} from './transitions';
+import {offlineForm,formSnapshot} from './forms';
 
 export type PendingWork={id:string;title:string;scope:{userId:string;organizationId:string;unitId:string|null};endpoint:string;method:"POST"|"PUT";body:Record<string,unknown>;status:"pending"|"confirmed"|"failed"|"conflict";error?:string;server?:unknown;result?:Record<string,unknown>;createdAt:string;resolutionAttempt?:Record<string,unknown>;resolutionStrategy?:string;transition?:TransitionEnvelope};
 // Enable queued mutations only after retry/conflict integration qualification.
 // Other command forms keep encrypted drafts for explicit online confirmation.
 const idempotentCommands:Record<string,string[]>={actions:['update']};
 export function allowedOfflineCommand(endpoint:string,method:string){
+  if(offlineForm(endpoint,method))return true;
   if(method!=='POST')return false;
   if(criticalTransition(endpoint))return true;
   if(/^\/api\/v1\/(knowledge|protocols|indicators|action-plans|meetings)$/.test(endpoint))return true;
@@ -50,15 +52,18 @@ export async function queueWork(vault:OfflineVault,workspace:WorkspaceContext,ti
   const existing=await vault.getRecord<PendingWork>(key);
   const pending:PendingWork={id,title,scope:{userId:workspace.userId,organizationId:workspace.organizationId,unitId:workspace.unitId},endpoint,method,body:{...body,operationId:id},status:'pending',createdAt:new Date().toISOString()};
   if(existing){if(JSON.stringify(existing.body)!==JSON.stringify(pending.body))throw new Error('A operação pendente tem outros dados. Preserve-a antes de preparar outra.');return existing;}
-  const transition=criticalTransition(endpoint);
+  const form=offlineForm(endpoint,method);
+  const transition=criticalTransition(endpoint)??form;
   if(transition){
-    const parsed=transition.schema.safeParse(pending.body);
-    if(!parsed.success)throw new Error('Revise os campos obrigatórios desta transição antes de prepará-la.');
     const snapshot=await vault.getRecord<{detail:DetailData}>(`snapshot:${workspace.userId}:${workspace.organizationId}:${workspace.unitId??'org'}:${transition.resource}:${transition.entityId}`);
-    if(!snapshot)throw new Error('Disponibilize o detalhe desta versão ou registro no dispositivo antes de preparar a transição.');
-    const saved=transitionSnapshot(snapshot.detail);
-    const {operationId,expectedVersion,...payload}=parsed.data;
-    pending.transition={organizationId:workspace.organizationId,unitId:workspace.unitId,entityId:transition.entityId,resource:transition.resource,command:transition.command,operationId,expectedVersion,deviceId:vault.deviceId,expectedRecord:saved.record,expectedRelated:saved.related,payload};
+    if(!snapshot)throw new Error('Disponibilize o detalhe desta versão ou registro no dispositivo antes de preparar a operação.');
+    const saved=form?formSnapshot(snapshot.detail):transitionSnapshot(snapshot.detail);
+    const {operationId:bodyOperation,expectedVersion:bodyVersion,...fields}=pending.body;void bodyOperation;
+    const parsed=form?form.schema.safeParse({...fields,...(form.userId?{userId:form.userId}:{})}):transition.schema.safeParse(pending.body);
+    if(!parsed.success)throw new Error('Revise os campos obrigatórios desta operação antes de prepará-la.');
+    const normalized=parsed.data as Record<string,unknown>;
+    const {operationId,expectedVersion,...payload}=form?{operationId:id,expectedVersion:Number(bodyVersion??saved.record.version??saved.record.version_number),...normalized}:normalized;
+    pending.transition={organizationId:workspace.organizationId,unitId:workspace.unitId,entityId:transition.entityId,resource:transition.resource,command:transition.command,operationId:String(operationId),expectedVersion:Number(expectedVersion),deviceId:vault.deviceId,expectedRecord:saved.record,expectedRelated:saved.related,payload};
   }
   await vault.putRecord(key,pending);return pending;
 }
@@ -66,7 +71,7 @@ export async function synchronizeWork(vault:OfflineVault,workspace:WorkspaceCont
   await verifyVault(vault,workspace);
   const rows=(await vault.listRecords<PendingWork>(workPrefix(workspace))).sort((a,b)=>a.value.createdAt.localeCompare(b.value.createdAt)||a.id.localeCompare(b.id));
   const entityKey=(item:PendingWork)=>{
-    const transition=criticalTransition(item.endpoint);
+    const transition=criticalTransition(item.endpoint)??offlineForm(item.endpoint,item.method);
     return transition?`/api/v1/${transition.resource}/${transition.entityId}`:item.endpoint.match(/^\/api\/v1\/[^/]+\/[0-9a-f-]{36}/i)?.[0];
   };
   const blocked=new Set(rows.filter(row=>row.value.status==='conflict').map(row=>entityKey(row.value)).filter(Boolean));
@@ -76,8 +81,8 @@ export async function synchronizeWork(vault:OfflineVault,workspace:WorkspaceCont
     await vault.assertIdentity(workspace.userId,workspace.organizationId);
     if(item.scope.unitId!==workspace.unitId||item.scope.userId!==workspace.userId||!allowedOfflineCommand(item.endpoint,item.method))throw new Error('Operação fora do contexto autorizado.');
     // Keep the exact operation/body on every retry, including a lost response.
-    if(criticalTransition(item.endpoint)&&!item.transition)throw new Error('Transição antiga sem snapshot. Recupere o rascunho e prepare uma operação com a versão autorizada.');
-    const response=await offlineFetch(item.transition?'/api/v1/offline/transitions':item.endpoint,{method:item.method,headers:{'content-type':'application/json','x-device-id':vault.deviceId},body:JSON.stringify(item.transition??item.body)});
+    if((criticalTransition(item.endpoint)||offlineForm(item.endpoint,item.method))&&!item.transition)throw new Error('Operação antiga sem snapshot. Recupere o rascunho e prepare uma operação com a versão autorizada.');
+    const response=await offlineFetch(item.transition?offlineForm(item.endpoint,item.method)?'/api/v1/offline/forms':'/api/v1/offline/transitions':item.endpoint,{method:item.transition?'POST':item.method,headers:{'content-type':'application/json','x-device-id':vault.deviceId},body:JSON.stringify(item.transition??item.body)});
     const result=await response.json();
     if(response.status===401||response.status===403){await vault.invalidateAuthorization();throw new Error('Acesso não autorizado. Fila cifrada preservada; entre novamente para revisar suas permissões.');}
     if(response.status===409){
@@ -104,7 +109,7 @@ export async function resolveTransitionWork(vault:OfflineVault,workspace:Workspa
  const attempt=item.resolutionAttempt??{...item.transition,operationId:crypto.randomUUID(),sourceOperationId:item.result?.operationId??item.id,decision,justification,expectedRecord:server.record,expectedRelated:server.related,expectedVersion:Number(server.record.version??server.record.version_number)};
  const key=workPrefix(workspace)+item.id;
  await vault.putRecord(key,{...item,resolutionAttempt:attempt});
- const response=await offlineFetch('/api/v1/offline/transitions',{method:'POST',headers:{'content-type':'application/json','x-device-id':vault.deviceId},body:JSON.stringify(attempt)});
+ const response=await offlineFetch(offlineForm(item.endpoint,item.method)?'/api/v1/offline/forms':'/api/v1/offline/transitions',{method:'POST',headers:{'content-type':'application/json','x-device-id':vault.deviceId},body:JSON.stringify(attempt)});
  const result=await response.json();
  if(response.status===401||response.status===403){await vault.invalidateAuthorization();throw new Error('Resolução não autorizada. Versões preservadas.');}
  if(response.status===409){await vault.putRecord(key,{...item,resolutionAttempt:undefined,result,server:result.server,error:'O servidor mudou novamente. Revise as duas versões.'});throw new Error('A transição continua em conflito. Revise novamente.');}

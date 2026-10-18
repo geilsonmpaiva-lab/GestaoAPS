@@ -121,3 +121,35 @@ O cenário de conflito altera a pauta por uma segunda sessão, mantendo a versã
 Fechamento dos testes: sete jornadas integradas aprovadas na suíte geral (revogação reservada), seguidas de dois testes focados aprovados no build final: RETRY e revogação controlada. Total de nove cenários distintos autenticados aprovados. O UUID `5d9a8298-053f-4012-a55a-f6ad86798519` foi criado exclusivamente nesta rodada; conferidos ator, organização e horário de criação antes de revogar somente esse dispositivo. Reconexão bloqueada e ciphertext preservado. Nenhum dispositivo preexistente foi revogado. Build integrado final, typecheck/lint e nova execução das 87 regressões de interface aprovados. As jornadas hospedam os dados no Supabase real, mas executam o frontend local: não substituem testes físicos nem a conferência do Preview publicado.
 
 Publicação deste pacote permitida exclusivamente na branch Preview `codex/cnes-ux-release`, após a suíte integrada e regressões. Produção permanece `a0da09f`. A presença dos novos objetos no banco compartilhado não equivale a um deploy de produção nem a autorização para dados sensíveis reais.
+
+## Demais formulários operacionais MVP — 18/10/2026
+
+Migration aditiva `20261018180522_offline_mvp_forms.sql`, aplicada após autorização específica e testes locais. Cria apenas `public.staging_offline_form(jsonb)` (SECURITY INVOKER), sua implementação privada e um leitor privado de snapshots. Reutiliza os recibos append-only já existentes; não altera tabelas, policies, funções online ou registros de negócio anteriores. O histórico recém-criado pela ferramenta foi alinhado à versão canônica do CLI, sem modificar migrations anteriores.
+
+Hashes de definição e ACL das funções anteriores preservados: `app` — 26 funções, `eb85119225a70d7c7a5f9f4d0b885d25`; `public` — 253 funções, `af152ba46a49ff6f7d5511d1cf52d292`. Execução anônima da RPC e execução direta do leitor interno por authenticated negadas. Advisors antes/depois mantiveram exatamente os mesmos avisos já descritos neste documento; não houve mudança global de Auth, grants anteriores ou configuração de produção.
+
+Cobertura adicional por `/api/v1/offline/forms`:
+
+| Área | Comandos preparados e sincronizados |
+| --- | --- |
+| Conhecimento | Criar versão, preservando conteúdo, referências e vigência |
+| Protocolos | Criar versão, checklist estruturado, vincular fórmula, iniciar execução |
+| Indicadores | Fórmula AST imutável e meta com período, comparação e valores |
+| Execuções | Respostas tipadas do checklist e observações |
+| Medições | Análise crítica e abertura de desvio/plano |
+| Planos | Ação 5W2H com responsável e prazo |
+| Reuniões | Pauta, presença de participante específico e encaminhamento |
+
+São 14 destinos explícitos, além dos cinco cadastros raiz, progresso de ações e transições críticas qualificados anteriormente. PUT é aceito na fila somente para a rota exata de presença; a transmissão usa POST ao gateway transacional, nunca o upsert online sem recibo. Formulários que não forneciam `expectedVersion` utilizam a versão do detalhe cifrado preparado. Todos exigem snapshot autorizado da entidade e de seus vínculos. O identificador de operação é preservado mesmo quando o transformador do formulário online omite esse campo.
+
+O gateway revalida JWT, perfil ativo, permissões atuais, dispositivo verificado em até 72 horas, organização sintética, UBS selecionada, responsáveis e referências. Autorização precede locks e resposta idempotente. Apenas os comandos fixos da allowlist são despachados. Escritas diretas de metas, ações, pauta, presença e encaminhamento recebem o mesmo recibo e auditoria transacionais dos comandos existentes. Reenvio com outro conteúdo é recusado. Estado fechado, vínculos alterados ou concorrência geram conflito preservado; não há repetição do SQLSTATE 40001 pelo PostgREST.
+
+Operação pelo usuário: entrar online na UBS autorizada, abrir Sincronização e desbloquear o cofre; no detalhe, clicar “Disponibilizar neste dispositivo”. Preparar o formulário sem rede e sincronizar pela Área offline quando reconectar. Preparação não equivale a gravação. Após sincronizar um comando que criou/alterou vínculos, consultar e preparar novamente o detalhe antes da próxima etapa. Comandos preparados no mesmo snapshot antigo não são rebaseados automaticamente: podem exigir revisão explícita do conflito. Novos registros filhos só recebem confirmação e identificador definitivo após resposta do servidor; não foi criado um grafo automático de dependências para executar todo o ciclo, a partir de cadastros inexistentes, em uma única sessão desconectada.
+
+Validação: 238 testes unitários/API em 31 arquivos; três guardas de configuração; 259 testes SQL/RLS em dez arquivos (29 novos); build integrado, lint, typecheck e 90 regressões de demonstração aprovados em Chromium desktop/mobile e WebKit mobile. O caso novo de interface usa gateway simulado e largura 320px: não substitui persistência real nem aparelho físico.
+
+Jornada autenticada `tests/integration/offline-forms.spec.ts`: os 14 formulários foram preparados sem rede e confirmados pela interface contra o Supabase real; cada envelope foi reenviado integralmente e retornou o mesmo recibo, sem nova gravação. Consulta SQL restrita aos 14 UUIDs recém-criados confirmou um recibo e uma auditoria de confirmação por operação. A medição sintética de 70 foi comparada à meta 90 e gerou FORA_META, seguida de análise, plano e ação. O leitor da UBS B recebeu 403 ao tentar enviar uma operação da UBS A. Fixtures de negócio são novas e identificadas por `[HOMOLOGAÇÃO]`; não houve limpeza do banco compartilhado.
+
+Segundo cenário novo aprovado: um item de pauta cifrado permaneceu pendente após fechar e reiniciar o processo do Chromium sem rede. Reconectado, o servidor confirmou a inclusão e a resposta HTTP foi deliberadamente interrompida; o reenvio retornou o recibo original, com apenas uma linha de pauta. Outra inclusão preparada antes de uma alteração concorrente gerou 409. A reavaliação RETRY, com justificativa, criou uma única linha na posição revisada e manteve a reunião agendada. Consulta restrita aos dois UUIDs confirmou um recibo/auditoria de conflito e um de resolução, sem duplicação. As três regressões autenticadas de rascunho/expiração, armazenamento/logout e anexo interrompido/conflito também passaram novamente. Total desta rodada: cinco jornadas autenticadas aprovadas (duas novas e três regressões), com frontend local e Supabase real; sem alegação de suíte autenticada integral ou homologação física.
+
+Limites: cobertura dos formulários operacionais existentes nas ondas 0–3. Convites, autenticação, administração de acessos/UBS, consulta externa CNES, exportações e configuração de políticas institucionais continuam exigindo conexão. ESF e ondas 4–6 não foram habilitados por este pacote. Sem merge automático ou bloqueio global entre dispositivos. Permanecem os gates de aparelhos físicos, baixo armazenamento real, fila extensa, backup/restauração, SMTP, segurança e aceite institucional. Deploy permitido apenas em Preview; o banco compartilhado contém somente as adições autorizadas.

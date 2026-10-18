@@ -1,0 +1,24 @@
+import {beforeEach,afterEach,it,expect,vi} from 'vitest';
+const mocks=vi.hoisted(()=>({actor:vi.fn(),workspace:vi.fn(),rpc:vi.fn()}));
+vi.mock('@/lib/server/supabase',()=>({requireActor:mocks.actor,isDemoMode:()=>false,createSupabaseServerClient:async()=>({rpc:mocks.rpc})}));
+vi.mock('@/lib/server/workspace',()=>({loadWorkspaceContext:mocks.workspace}));
+import {POST} from './route';
+const id='00000000-0000-4000-8000-000000000001';
+const body={organizationId:id,unitId:id,entityId:id,operationId:id,deviceId:id,resource:'meetings',command:'agenda',expectedVersion:1,expectedRecord:{id},expectedRelated:{agenda:[],participants:[],referrals:[]},payload:{position:1,title:'Pauta sintética'}};
+const request=(change={})=>new Request('https://staging.example/api/v1/offline/forms',{method:'POST',headers:{'content-type':'application/json','x-device-id':id},body:JSON.stringify({...body,...change})});
+beforeEach(()=>{vi.clearAllMocks();vi.stubEnv('SGC_ENVIRONMENT','staging');mocks.actor.mockResolvedValue({id});mocks.workspace.mockResolvedValue({organizationId:id,unitId:id,enabledModules:['reunioes']});mocks.rpc.mockResolvedValue({data:{status:'confirmed',result:{id}}});});
+afterEach(()=>vi.unstubAllEnvs());
+it('never enables production',async()=>{vi.stubEnv('SGC_ENVIRONMENT','production');expect((await POST(request())).status).toBe(403);expect(mocks.rpc).not.toHaveBeenCalled();});
+it('requires authentication',async()=>{mocks.actor.mockResolvedValue(null);expect((await POST(request())).status).toBe(401);});
+it('rejects scope broadening before database access',async()=>{expect((await POST(request({unitId:null}))).status).toBe(403);expect(mocks.rpc).not.toHaveBeenCalled();});
+it('requires the module gate',async()=>{mocks.workspace.mockResolvedValue({organizationId:id,unitId:id,enabledModules:[]});expect((await POST(request())).status).toBe(403);});
+it('rejects malformed form data',async()=>{expect((await POST(request({payload:{title:'x'}}))).status).toBe(422);expect(mocks.rpc).not.toHaveBeenCalled();});
+it('uses only the additive form RPC and disables caching',async()=>{const response=await POST(request());expect(response.status).toBe(200);expect(mocks.rpc).toHaveBeenCalledWith('staging_offline_form',{p_request:body});expect(response.headers.get('cache-control')).toBe('no-store');});
+it('preserves conflicts as 409',async()=>{mocks.rpc.mockResolvedValue({data:{status:'conflict',server:{record:{id}}}});expect((await POST(request())).status).toBe(409);});
+it('reports row contention as retryable',async()=>{mocks.rpc.mockResolvedValue({error:{code:'55P03'}});expect((await POST(request())).status).toBe(503);});
+it('normalizes the shared protocol version form before transactional dispatch',async()=>{
+ mocks.workspace.mockResolvedValue({organizationId:id,unitId:id,enabledModules:['protocolos']});
+ const payload={content:{text:'Conteúdo sintético'},validFrom:'2026-01-01',references:[]};
+ expect((await POST(request({resource:'protocols',command:'versions',payload}))).status).toBe(200);
+ expect(mocks.rpc.mock.calls[0][1].p_request.payload).toEqual({content:payload.content,validFrom:payload.validFrom});
+});

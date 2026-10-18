@@ -51,7 +51,7 @@ export function CommandForm({ title, endpoint, expectedVersion, fields = [], pay
       if (!navigator.onLine) {
         if(critical&&!criticalConfirmed)throw new Error('Confirme a preparação da transição. Ela só terá efeito após validação do servidor.');
         if(!workspace||!OfflineVault.active)throw new Error('Sem conexão. Desbloqueie o cofre e salve o rascunho antes de preparar o envio.');
-        await queueWork(OfflineVault.active,workspace,title,endpoint,method,JSON.parse(pendingBody.current));
+        await queueWork(OfflineVault.active,workspace,title,endpoint,method,{...JSON.parse(pendingBody.current),operationId:operation.current});
         setMessage('Aguardando envio. Operação cifrada neste dispositivo; a transição só terá efeito após confirmação do servidor.');return;
       }
       const response = await fetch(endpoint, { method, headers: { "content-type": "application/json" }, body: pendingBody.current });
