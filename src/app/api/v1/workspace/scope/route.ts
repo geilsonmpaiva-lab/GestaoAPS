@@ -6,7 +6,18 @@ import { requireActor } from "@/lib/server/supabase";
 
 const schema = z.object({ organizationId: z.uuid(), unitId: z.uuid().nullable() });
 export async function POST(request: Request) {
-  if (request.headers.get("origin") && request.headers.get("origin") !== new URL(request.url).origin) return NextResponse.json({ error: "Origem inválida." }, { status: 403 });
+  const origin = request.headers.get("origin");
+  const url = new URL(request.url);
+  // Next's local server may reconstruct 127.0.0.1 requests as localhost.
+  // Validate against the actual HTTP Host as well, preserving scheme and port.
+  let sameOrigin = !origin || origin === url.origin;
+  if (origin && !sameOrigin) {
+    try {
+      const parsed = new URL(origin);
+      sameOrigin = parsed.origin === origin && parsed.protocol === url.protocol && parsed.host === request.headers.get("host");
+    } catch { sameOrigin = false; }
+  }
+  if (!sameOrigin) return NextResponse.json({ error: "Origem inválida." }, { status: 403 });
   if (!await requireActor()) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
   const body = schema.safeParse(await request.json().catch(() => null));
   if (!body.success) return NextResponse.json({ error: "Selecione uma unidade válida." }, { status: 422 });

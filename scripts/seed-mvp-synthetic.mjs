@@ -1,19 +1,8 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
+import { loadStagingConfig } from "./staging-config.mjs";
 
-for (const line of readFileSync(resolve(process.cwd(), ".env.local"), "utf8").split(/\r?\n/)) {
-  if (!line || line.trimStart().startsWith("#")) continue;
-  const separator = line.indexOf("=");
-  if (separator > 0 && !process.env[line.slice(0, separator).trim()]) {
-    process.env[line.slice(0, separator).trim()] = line.slice(separator + 1).trim();
-  }
-}
-
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!url || !serviceKey) throw new Error("Supabase não configurado em .env.local.");
+const { url, serviceKey, env } = loadStagingConfig();
 const client = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
 const ids = {
@@ -25,6 +14,8 @@ const ids = {
   form: "20000000-0000-4000-8000-000000000003",
   execution: "30000000-0000-4000-8000-000000000001",
   response: "30000000-0000-4000-8000-000000000002",
+  responseConformes: "30000000-0000-4000-8000-000000000003",
+  responseAvaliados: "30000000-0000-4000-8000-000000000004",
   attachment: "40000000-0000-4000-8000-000000000001",
   evidenceLink: "40000000-0000-4000-8000-000000000002",
   indicator: "50000000-0000-4000-8000-000000000001",
@@ -51,17 +42,25 @@ async function one(table, configure) {
 }
 
 async function ensure(table, row) {
-  const { data: existing, error: lookupError } = await client.from(table).select("id").eq("id", row.id).maybeSingle();
+  const { data: existing, error: lookupError } = await client.from(table).select("id,organization_id").eq("id", row.id).maybeSingle();
   if (lookupError) throw lookupError;
-  if (existing) return false;
+  if (existing) {
+    if (existing.organization_id !== row.organization_id) throw new Error("Fixture pertence a outra organização; operação recusada.");
+    return false;
+  }
   const { error } = await client.from(table).insert(row);
   if (error) throw new Error(`${table}: ${error.message}`);
   return true;
 }
 
-const organization = await one("organizations", (query) => query.eq("name", "Secretaria Municipal de Acaraú"));
-const unit = await one("units", (query) => query.eq("organization_id", organization.id).eq("cnes", "3657973"));
-const profile = await one("profiles", (query) => query.eq("email", "geilsonmpaiva@gmail.com"));
+const organization = await one("organizations", (query) => query.eq("name", "[HOMOLOGAÇÃO] Município Sintético"));
+// Scope all fixture IDs to this organization; never reuse historic production fixtures.
+for (const key of Object.keys(ids)) {
+  const hash = createHash("sha256").update(`${organization.id}:${ids[key]}`).digest("hex");
+  ids[key] = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+}
+const unit = await one("units", (query) => query.eq("organization_id", organization.id).eq("cnes", "0000001"));
+const profile = await one("profiles", (query) => query.eq("email", env.SGC_STAGING_ADMIN_EMAIL ?? "admin@sgc-ubs.test"));
 const scope = { organization_id: organization.id, unit_id: unit.id };
 const authored = { created_by: profile.id };
 const maintained = { ...authored, updated_by: profile.id };
@@ -86,7 +85,7 @@ const rows = [
   ["measurements", { id: ids.measurement, ...scope, indicator_id: ids.indicator, formula_version_id: ids.formula, competency, value: 70, status: "FORA_META", origin_type: "EXECUTION", origin_id: ids.execution, calculation_inputs: { conformes: 7, avaliados: 10 }, ...maintained }],
   ["nonconformities", { id: ids.nonconformity, ...scope, code: "NC-HML-MVP-001", origin_type: "MEASUREMENT", origin_id: ids.measurement, classification: "MAJOR", description: `${label} Desvio intencional: resultado 70% para meta sintética de 90%.`, responsible_id: profile.id, due_at: new Date(now.getTime() + 7 * 86400000).toISOString(), status: "CLOSED", ...maintained }],
   ["action_plans", { id: ids.plan, ...scope, origin_type: "NONCONFORMITY", origin_id: ids.nonconformity, title: `${label} Tratar desvio do indicador`, responsible_id: profile.id, due_at: new Date(now.getTime() + 7 * 86400000).toISOString(), status: "CONCLUIDO", ...maintained }],
-  ["actions", { id: ids.action, ...scope, action_plan_id: ids.plan, what: "Revisar o checklist sintético", why: "Demonstrar o tratamento rastreável do desvio", where_text: "UBS Paulo VI — ambiente de homologação", when_at: now.toISOString(), who_id: profile.id, how: "Revisão simulada e registro de evidência sintética", how_much: 0, status: "CONCLUIDO", percentage: 100, completed_at: now.toISOString(), ...maintained }],
+  ["actions", { id: ids.action, ...scope, action_plan_id: ids.plan, what: "Revisar o checklist sintético", why: "Demonstrar o tratamento rastreável do desvio", where_text: "[HOMOLOGAÇÃO] UBS Sintética A", when_at: now.toISOString(), who_id: profile.id, how: "Revisão simulada e registro de evidência sintética", how_much: 0, status: "CONCLUIDO", percentage: 100, completed_at: now.toISOString(), ...maintained }],
   ["critical_analyses", { id: ids.analysis, ...scope, measurement_id: ids.measurement, analysis: `${label} Resultado propositalmente abaixo da meta para validar o fluxo.`, cause: "Dados sintéticos definidos para provocar desvio.", decision: "Executar e verificar plano sintético.", action_plan_id: ids.plan, ...maintained }],
   ["meetings", { id: ids.meeting, ...scope, title: `${label} Reunião de análise do MVP`, starts_at: new Date(now.getTime() - 7200000).toISOString(), ends_at: now.toISOString(), location: "Ambiente virtual de homologação", organizer_id: profile.id, status: "COMPLETED", minutes: `${label} O ciclo foi analisado e o encaminhamento sintético foi registrado.`, ...maintained }],
   ["meeting_agenda_items", { id: ids.agenda, ...scope, meeting_id: ids.meeting, position: 1, title: "Análise do desvio sintético", description: "Avaliar encadeamento do MVP.", decision: "Manter evidências e validar rastreabilidade.", ...maintained }],
@@ -94,8 +93,21 @@ const rows = [
   ["referrals", { id: ids.referral, ...scope, meeting_id: ids.meeting, agenda_item_id: ids.agenda, description: `${label} Conferir rastreabilidade no dashboard`, responsible_id: profile.id, due_at: now.toISOString(), priority: "NORMAL", status: "COMPLETED", completed_at: now.toISOString(), ...maintained }],
 ];
 
+rows.push(
+  ["execution_responses", { id: ids.responseConformes, ...scope, execution_id: ids.execution, field_key: "conformes", value: 7, compliant: false, observation: `${label} resposta do checklist`, ...maintained }],
+  ["execution_responses", { id: ids.responseAvaliados, ...scope, execution_id: ids.execution, field_key: "avaliados", value: 10, compliant: true, observation: `${label} resposta do checklist`, ...maintained }],
+);
 const created = [];
-for (const [table, row] of rows) if (await ensure(table, row)) created.push(table);
+for (const [table, row] of rows) {
+  if (table === "protocol_versions") row.status = "RASCUNHO";
+  if (table === "form_versions") row.schema = { fields: [{ key: "conformes", label: "Itens conformes (sintético)", type: "number", required: true }, { key: "avaliados", label: "Itens avaliados (sintético)", type: "number", required: true }] };
+  if (table === "indicator_formula_versions") row.variables = ["conformes", "avaliados"];
+  if (await ensure(table, row)) created.push(table);
+  if (table === "form_versions") {
+    const published = await client.from("protocol_versions").update({ status: "PUBLICADO" }).eq("id", ids.protocolVersion).eq("organization_id", organization.id).eq("status", "RASCUNHO");
+    if (published.error) throw new Error("Não foi possível publicar a versão sintética após criar seu checklist.");
+  }
+}
 
 const evidence = Buffer.from("tipo;descricao\nhomologacao;Evidencia exclusivamente sintetica do ciclo MVP sem dados reais\n", "utf8");
 const objectPath = `${organization.id}/${unit.id}/INTERNAL/${ids.attachment}-homologacao.csv`;

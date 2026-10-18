@@ -14,6 +14,13 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.clearAllMocks(); });
 describe("isolated access modes", () => {
+  it("rejects staging configured against production or a mismatched project", () => {
+    const staging = { SGC_ENVIRONMENT: "staging", SGC_DEMO_MODE: "false", SGC_STAGING_PROJECT_REF: "abcdefghijklmnopqrst", NEXT_PUBLIC_SUPABASE_URL: "https://abcdefghijklmnopqrst.supabase.co", NEXT_PUBLIC_SUPABASE_ANON_KEY: "synthetic-key" };
+    expect(runtimeMode(staging)).toBe("integrated");
+    expect(runtimeMode({ ...staging, NEXT_PUBLIC_SUPABASE_URL: "https://javgqqgyealviyhqwhgx.supabase.co" })).toBe("unconfigured");
+    expect(runtimeMode({ ...staging, SGC_STAGING_PROJECT_REF: "javgqqgyealviyhqwhgx", NEXT_PUBLIC_SUPABASE_URL: "https://javgqqgyealviyhqwhgx.supabase.co" })).toBe("unconfigured");
+    expect(runtimeMode({ ...staging, VERCEL_ENV: "production" })).toBe("unconfigured");
+  });
   it("fails closed without configuration", async () => {
     expect(runtimeMode({})).toBe("unconfigured");
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");

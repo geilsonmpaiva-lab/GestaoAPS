@@ -184,7 +184,7 @@ export async function loadWorkspaceContext(): Promise<WorkspaceContext> {
   if (profileResult.error || membershipsResult.error) throw new Error("Não foi possível consultar seus vínculos.");
   const profile = profileResult.data;
   if (profile?.status !== "ACTIVE") throw new Error("Perfil sem acesso ativo.");
-  const memberships = membershipsResult.data ?? [];
+  const memberships = (membershipsResult.data ?? []).filter(item => process.env.SGC_ENVIRONMENT !== "staging" || item.organization_id === process.env.SGC_STAGING_ORGANIZATION_ID);
   if (!memberships.length) throw new Error("Nenhum vínculo ativo encontrado.");
   const metadataResult = await client.rpc("read_workspace_metadata");
   if (metadataResult.error) throw new Error("Não foi possível consultar as unidades autorizadas.");
@@ -217,7 +217,7 @@ export async function loadWorkspaceContext(): Promise<WorkspaceContext> {
     permissions,
     userName,
     userInitials: initials(userName),
-    environmentLabel: "Ambiente integrado",
+    environmentLabel: process.env.SGC_ENVIRONMENT === "staging" ? "Homologação — dados sintéticos" : "Ambiente integrado",
   };
 }
 

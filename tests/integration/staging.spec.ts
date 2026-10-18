@@ -1,0 +1,38 @@
+import { test, expect } from "@playwright/test";
+import { readFileSync } from "node:fs";
+type Account = { email: string; password: string; role: string };
+const file = process.env.SGC_STAGING_ACCOUNTS_FILE;
+if (!file) throw new Error("Arquivo privado de contas sintéticas obrigatório.");
+const accounts: Account[] = JSON.parse(readFileSync(file, "utf8")).accounts;
+
+test("cadastro autenticado persiste após recarga na organização sintética", async ({ page }) => {
+  const account = accounts.find(item => item.role === "ADMIN_SISTEMA")!;
+  await page.goto("/login");
+  await page.getByLabel("E-mail", { exact: true }).fill(account.email);
+  await page.getByLabel("Senha", { exact: true }).fill(account.password);
+  const authentication = page.waitForResponse(response => new URL(response.url()).pathname === "/auth/v1/token" && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Entrar", exact: true }).click();
+  expect((await authentication).status()).toBe(200);
+  await expect(page.getByRole("heading", { name: "Prioridades da unidade" })).toBeVisible();
+  await expect(page.getByText("[HOMOLOGAÇÃO] Município Sintético", { exact: true }).first()).toBeVisible();
+  const scope = page.getByRole("combobox", { name: "Unidade de trabalho" });
+  const option = scope.locator("option").filter({ hasText: "UBS Sintética A" });
+  const changed = page.waitForResponse(response => new URL(response.url()).pathname === "/api/v1/workspace/scope" && response.request().method() === "POST");
+  await scope.selectOption(await option.getAttribute("value") as string);
+  const scopeResponse = await changed;
+  expect(scopeResponse.status(), await scopeResponse.text()).toBe(200);
+  await expect(scope).toHaveValue(/:.+/);
+  await page.getByRole("link", { name: "Conhecimento", exact: true }).first().click();
+  await page.getByRole("link", { name: "Novo conteúdo", exact: true }).click();
+  await expect(page).toHaveURL(/\/cadastros\/knowledge/);
+  await expect(page.getByRole("heading", { name: "Novo conteúdo", exact: true })).toBeVisible();
+  const title = `[HOMOLOGAÇÃO] Cadastro pela interface ${Date.now()}`;
+  await page.getByRole("textbox", { name: /^Título/ }).fill(title);
+  await page.getByLabel("Domínio institucional", { exact: false }).fill("gestao");
+  await page.getByRole("button", { name: "Salvar e continuar", exact: true }).click();
+  await expect(page).toHaveURL(/\/registros\/knowledge\//);
+  await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
+  await page.screenshot({ path: "test-results/staging/cadastro-persistido.png", fullPage: true });
+});

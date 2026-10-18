@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { runtimeMode } from "@/lib/runtime-mode";
+import { canUseStaging } from "@/lib/staging-access";
 
 export async function proxy(request: NextRequest) {
   const mode = runtimeMode();
@@ -22,6 +23,9 @@ export async function proxy(request: NextRequest) {
   });
 
   const { data } = await client.auth.getUser();
+  if (data.user && request.nextUrl.pathname !== "/login" && !await canUseStaging(client, data.user.id)) {
+    return NextResponse.json({ error: "Esta homologação aceita somente os usuários da organização sintética de testes." }, { status: 403, headers: { "Cache-Control": "no-store" } });
+  }
   const publicPath = ["/login", "/api/v1/health", "/offline.html"].includes(request.nextUrl.pathname);
   const withCookies = (next: NextResponse) => {
     response.cookies.getAll().forEach(cookie => next.cookies.set(cookie));

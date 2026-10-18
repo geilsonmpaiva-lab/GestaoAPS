@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { runtimeMode } from "@/lib/runtime-mode";
+import { canUseStaging } from "@/lib/staging-access";
 
 export function isDemoMode() {
   return runtimeMode() === "demo";
@@ -31,5 +32,6 @@ export async function requireActor() {
   const client = await createSupabaseServerClient();
   const { data, error } = await client.auth.getUser();
   if (error || !data.user) return null;
+  if (!await canUseStaging(client, data.user.id)) return null;
   return { id: data.user.id, email: data.user.email ?? "", demo: false };
 }

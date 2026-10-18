@@ -13,5 +13,13 @@ describe("workspace scope selection", () => {
   it("does not turn a unit membership into organization scope", async () => { expect((await POST(request({ organizationId, unitId: null }))).status).toBe(403); expect(mocks.set).not.toHaveBeenCalled(); });
   it("requires authentication", async () => { mocks.actor.mockResolvedValue(null); expect((await POST(request({ organizationId, unitId }))).status).toBe(401); });
   it("rejects cross-origin changes", async () => { expect((await POST(request({ organizationId, unitId }, "https://other.test"))).status).toBe(403); expect(mocks.set).not.toHaveBeenCalled(); });
+  it("accepts the actual loopback HTTP host when Next reconstructs localhost", async () => {
+    const input = new Request("http://localhost:3103/api/v1/workspace/scope", { method: "POST", headers: { host: "127.0.0.1:3103", origin: "http://127.0.0.1:3103", "content-type": "application/json" }, body: JSON.stringify({ organizationId, unitId }) });
+    expect((await POST(input)).status).toBe(200);
+  });
+  it.each(["http://evil.test:3103", "https://127.0.0.1:3103", "http://127.0.0.1:3104"])("rejects a mismatched origin %s even with a Host header", async origin => {
+    const input = new Request("http://localhost:3103/api/v1/workspace/scope", { method: "POST", headers: { host: "127.0.0.1:3103", origin, "content-type": "application/json" }, body: JSON.stringify({ organizationId, unitId }) });
+    expect((await POST(input)).status).toBe(403);
+  });
   it("stores only an authorized scope in a secure httpOnly cookie", async () => { expect((await POST(request({ organizationId, unitId }))).status).toBe(200); expect(mocks.set).toHaveBeenCalledWith("sgc-workspace-scope", JSON.stringify({ organizationId, unitId }), expect.objectContaining({ httpOnly: true, secure: true, sameSite: "lax" })); });
 });

@@ -1,5 +1,7 @@
 # Estabilização e homologação — 18/10/2026
 
+Atualização posterior autorizada: o usuário optou por usar o banco `GestaoAPS` compartilhado com uma organização sintética e aprovou explicitamente as migrations 025–035. O limite inicial abaixo documenta a fase de validação local anterior; para a configuração integrada vigente, consultar `STAGING.md`. Não foi promovido um novo deploy para produção.
+
 ## Limite de autorização
 
 Trabalho exclusivamente local/revisão. Não promover para produção, aplicar migrations remotas, alterar Auth, DNS, credenciais ou flags institucionais. O projeto Supabase `javgqqgyealviyhqwhgx` é produção e não pode ser usado como banco de ensaio.
