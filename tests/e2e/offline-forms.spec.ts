@@ -4,6 +4,7 @@ test('offline agenda preserves typed payload and requires a durable receipt at 3
  await page.setViewportSize({width:320,height:760});const sent:Array<Record<string,unknown>>=[];
  await page.route('**/api/v1/offline/forms',async route=>{const body=route.request().postDataJSON();sent.push(body);await route.fulfill({json:{status:'confirmed',operationId:body.operationId,result:{id:body.operationId}}});});
  await page.goto('/reunioes');await page.getByRole('link',{name:/^Abrir /}).first().click();
+ await expect(page.getByRole('heading',{name:'Informações do registro',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Sincronização',exact:true}).click();await page.getByLabel('PIN local de 6 a 12 dígitos').fill('135790');await page.getByRole('button',{name:'Desbloquear cofre',exact:true}).click();await expect(page.getByRole('dialog').getByRole('status')).toContainText('Dispositivo protegido');await page.getByRole('button',{name:'Fechar',exact:true}).click();
  await page.getByRole('button',{name:'Disponibilizar neste dispositivo',exact:true}).click();await expect(page.getByText('Registro cifrado e disponível',{exact:false})).toBeVisible();
  const form=page.locator('section').filter({has:page.getByRole('heading',{name:'Adicionar item de pauta',exact:true})});await form.getByLabel('Assunto',{exact:false}).fill('Pauta preparada sem conexão');await form.getByLabel('Ordem na pauta',{exact:false}).fill('2');

@@ -41,6 +41,43 @@ test("filters submit their selected values and can be cleared", async ({ page })
   await expect(page.getByRole("combobox", { name: "Situação" })).toHaveValue("");
 });
 
+test('completed executions clearly expose their fixed scope and allow viewing all executions', async ({ page }) => {
+  await page.goto('/protocolos?view=completed-executions&responsibleId=me&sort=updated_desc');
+  const status = page.getByRole('combobox', { name: 'Situação', exact: true });
+  await expect(page.getByText('Filtro ativo: execuções concluídas.', { exact: false })).toBeVisible();
+  await expect(status).toHaveValue('COMPLETED');
+  await expect(status).toBeDisabled();
+  await expect(status.locator('option')).toHaveText(['Concluída']);
+  await expect(page.getByRole('link', { name: 'Execuções', exact: true })).toHaveAttribute('aria-current', 'page');
+  await page.getByRole('button', { name: 'Aplicar filtros', exact: true }).click();
+  await expect(page).toHaveURL(/view=completed-executions/);
+  await expect(status).toHaveValue('COMPLETED');
+  await page.getByRole('link', { name: 'Ver todas as execuções', exact: true }).click();
+  await expect(page).toHaveURL(/view=executions/);
+  await expect(status).toBeEnabled();
+  await expect(status).toHaveValue('');
+  await expect(page.getByText('Filtro ativo: execuções concluídas.', { exact: false })).toHaveCount(0);
+  await status.selectOption('IN_PROGRESS');
+  await page.getByRole('button', { name: 'Aplicar filtros', exact: true }).click();
+  await expect(page).toHaveURL(/status=IN_PROGRESS/);
+  await expect(page.locator('.v2-record')).not.toHaveCount(0);
+});
+
+test('the completed scope is readable at 320px and retains normal filter behavior on return', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.goto('/protocolos?view=completed-executions&page=2');
+  const all = page.getByRole('link', { name: 'Ver todas as execuções', exact: true });
+  await expect(all).toHaveAttribute('href', /view=executions/);
+  expect(new URL(await all.getAttribute('href') ?? '', 'https://sgc.invalid').searchParams.has('page')).toBe(false);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await all.click();
+  const open = page.getByRole('link', { name: /^Abrir / }).first();
+  await open.click();
+  await page.getByRole('link', { name: '← Voltar à lista', exact: true }).click();
+  await expect(page).toHaveURL(/view=executions/);
+  await expect(page.getByRole('combobox', { name: 'Situação', exact: true })).toBeEnabled();
+});
+
 test("creation uses a page, translated options and usable mobile controls", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 320, height: 720 });
   await page.goto("/conhecimento");

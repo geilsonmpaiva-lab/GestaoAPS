@@ -88,6 +88,15 @@ test("ciclo completo pela interface, com gerente A e leitor B segregados", async
   await form.getByLabel("Identificador da resposta", { exact: true }).fill("valor");
   await form.getByRole("combobox", { name: "Formato", exact: true }).selectOption("number");
   await command(page, "Salvar checklist desta versão");
+  await expect(section(page, 'Checklists').getByRole('list', { name: 'Campos do checklist' })).toBeVisible();
+  await expect(section(page, 'Checklists')).toContainText('Formato: Número · Resposta obrigatória');
+  await expect(section(page, 'Checklists')).not.toContainText('fields:');
+  await expect(section(page, 'Checklists')).not.toContainText('key:');
+  await page.setViewportSize({ width: 320, height: 760 });
+  await section(page, 'Checklists').getByRole('list', { name: 'Campos do checklist' }).scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: `${artifactRoot}/checklist-legivel-320.png` });
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.reload();
   form = section(page, "Vincular fórmula de indicador");
   const formula = form.getByLabel("Indicador e versão da fórmula", { exact: false });
