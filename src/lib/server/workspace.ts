@@ -5,11 +5,13 @@ import { cookies } from "next/headers";
 import { modulePagination, scopePermissions, selectAuthorizedScope } from "@/lib/domain/workspace-policy";
 import { apsV3Enabled } from '@/lib/aps-policy';
 import { responsibilityLabels, type AdminRole } from '@/lib/domain/admin-registration';
+import type { OfflineAuthorization } from '@/lib/offline/authorization';
 
 export type WorkspaceScope = { organizationId: string; organizationName: string; unitId: string | null; unitName: string };
 export const scopeCookie = "sgc-workspace-scope";
 
 export type WorkspaceContext = {
+  offlineAuthorization?: OfflineAuthorization;
   uxV2: boolean;
   uxV3?: boolean;
   responsibilities?: string[];

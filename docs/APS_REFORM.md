@@ -43,18 +43,35 @@ O estado de execução e as evidências serão registrados após cada rodada. Te
 - Migrations aditivas aplicadas: `20261019194113_aps_access_lifecycle_v1` e `20261019194119_aps_synthetic_setup_v1`. Preparação invocada com JWT do administrador sintético: apenas três flags novas na organização sintética. Nenhum vínculo anterior foi encerrado.
 - Comparação antes/depois: mesmas definições/grants das 298 funções anteriores; mesmos hashes de 4 vínculos, 5 perfis, 562 acompanhamentos epidemiológicos, 59 mapas ESF anteriores e 5 flags anteriores.
 - Advisors de segurança sem novos achados. Permanecem avisos anteriores de funções definer expostas, extensão em public, proteção de senhas e MFA; tabelas ESF acessadas por RPC continuam com bloqueio direto por RLS. Esses avisos não foram resolvidos por esta reforma.
+- Referências dos avisos anteriores: [funções definer](https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable), [extensões em public](https://supabase.com/docs/guides/database/database-linter?lint=0014_extension_in_public), [proteção contra senhas comprometidas](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection), [MFA](https://supabase.com/docs/guides/auth/auth-mfa). O advisor de desempenho também mantém 214 FKs sem índice e 6 alertas de initplan anteriores; nenhuma FK nova sem índice na tabela criada nesta entrega. Índices novos ainda sem uso são esperados enquanto não há comandos reais de encerramento de vínculos.
 - Jornada integrada V3 de medicamentos aprovada: novo mapa sintético, item/conferência, falha antes da gravação, retry idempotente, salvamento, reload e PDF fiel. Cálculos conferidos: entradas 15, saídas 12, saldo 103 e demanda 13; autorização de 40 não contabilizada como entrada.
 - Jornada integrada de produção aprovada: lançamento 17 → envio → devolução pelo gerente → correção para 19 → reenvio → fechamento. Leitor da UBS B bloqueado ao consultar equipe da UBS A; APIs de capacidades e tarefas sem vazamento do identificador da equipe A.
 - Rascunho de Vigilância aprovado após reload: envelope cifrado no IndexedDB, sem nome/SINAN em texto aberto, PIN incorreto rejeitado, PIN correto recupera valores e zero; outra competência não recupera a cópia. Nenhum acompanhamento epidemiológico foi criado por esse teste. Não simula reinício completo do navegador nem perda de rede.
 - Inspeção visual do Preview confirmou login, nova navegação, contexto da UBS e início autenticado. O endereço estável apresentou sessão anterior incompatível com a organização sintética; o endereço isolado do deploy permitiu o acesso sintético, sem remover cookies ou reduzir proteções.
 
-### Ainda não concluído
+### Repetição final
 
 - Repetição final integrada: 3/3 jornadas aprovadas (1,4 minuto), incluindo células exatas da produção em PDF/Excel, mapa de medicamentos e rascunho cifrado. PDF de produção e medicamentos gerados como artefatos locais de teste.
+- Correção adicional de sessão incompatível no Preview: navegação leva ao login sem loop, API continua 403, recuperação permanece disponível. Sem purge ou signout automático por essa correção.
+- Correção P1 de revogação específica implementada: RPC adicional retorna somente SHA-256 das autorizações do próprio ator sintético; inclui concessões de Vigilância, vínculos/vigências, participação e estados de equipes/UBS. Baseline cifrado reservado e prazo são confirmados atomicamente. Alteração bloqueia o cofre; falha de consulta não renova nem apaga. Cofre legado com dados e sem baseline fica em quarentena, não recebe autorização nova silenciosamente. Migration ainda aguarda CI de banco antes da aplicação.
+- Após essas correções: 403 testes unitários, lint, TypeScript e build aprovados. Regressão de interface em repetição.
 
 ### Ordem preservada para a próxima entrega
 
 A etapa 3 não está concluída. A auditoria identificou que os casos canônicos atuais são vinculados a uma competência; acrescentar campos visuais não resolve acompanhamento longitudinal. Também não há equivalência institucional aprovada para SINAN → número de notificação, contatos → contatos examinados e tipo informado → classificação operacional. Não serão inferidas essas equivalências, nem copiados históricos por mês. A extensão precisa de acompanhamentos históricos e projeção documental explícita antes de declarar entrada única completa. A etapa 4 depende desse contrato, além das validações offline abaixo.
+
+Contrato recomendado para a etapa 3, antes de implementação:
+
+- Núcleo atual preservado; complemento append-only ligado ao caso e à versão, escrito pela mesma transação de uma RPC adicional. Cliente antigo não pode apagar complemento ao substituir seu payload conhecido.
+- Identidade do caso separada dos acompanhamentos por competência. Notificação original não é reescrita para simular acompanhamento mensal.
+- Número de notificação confirmado, contatos examinados e classificação operacional são campos distintos dos valores ambíguos da origem; nenhum preenchimento automático entre eles.
+- Hanseníase: município de residência, último comparecimento, contatos examinados, classificação operacional informada, grau/data de incapacidade e tipo/data de alta, além da identificação e data do acompanhamento.
+- Tuberculose: baciloscopias 1–6, mudança de tratamento, contatos examinados, situações 9/12, encerramento/data, culturas, HIV, histopatologia e TDO. Sem converter mês de acompanhamento em mês do calendário, classificar resultados ou recomendar tratamento.
+- Cabeçalhos explícitos e versionados: data, responsável pelo preenchimento, regional/município/técnico quando exigidos. Organização não será presumida município nem exportador presumido responsável técnico.
+- PDF por projeção pura do snapshot autorizado para os SVGs existentes, sem criar cópia em mapas ESF. Campos sem célula vão para anexo; relatório nominal somente da equipe com concessão explícita, nunca do consolidado municipal.
+- Fechamento congela núcleo, complemento e cabeçalhos da mesma revisão; reabertura não muda a impressão histórica.
+
+Para a etapa 4, não cachear HTML/RSC autenticado. Preparar explicitamente snapshots cifrados sem nomes e cobertura por recorte, renderizados no shell público `/offline`. Concessões específicas de equipe/área/nominal precisam ser revalidadas antes de renovar autorização do cofre; falha ou revogação bloqueia a cópia, sem excluir pendências. Ampliação nominal/anexos aguarda esse contrato e suas provas de revogação, expiração, retomada de aba e reinício sem rede.
 
 ### Pendências de aceite
 

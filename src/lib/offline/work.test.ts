@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { allowedOfflineCommand, queueWork, synchronizeWork, verifyVault } from './work';
 import type { OfflineVault } from './vault';
 import type { WorkspaceContext } from '@/lib/server/workspace';
+import { OFFLINE_AUTHORIZATION_KEY, RESTRICTED_OFFLINE_ORGANIZATION } from './authorization';
 const workspace={userId:'user',organizationId:'org',unitId:'unit',scopes:[{organizationId:'org',unitId:'unit'}],permissions:[{domain:'*',operations:['*']}]} as WorkspaceContext;
 beforeEach(()=>{vi.unstubAllGlobals();vi.stubGlobal('navigator',{userAgent:'test'});});
 describe('offline allowlist and retry integrity',()=>{
@@ -75,5 +76,58 @@ describe('offline allowlist and retry integrity',()=>{
     const vault={verificationContext:vi.fn().mockResolvedValue(workspace),invalidateAuthorization:vi.fn(),markOnlineVerification:vi.fn()} as unknown as OfflineVault;
     await expect(verifyVault(vault)).rejects.toThrow('UBS original');
     expect(vault.invalidateAuthorization).not.toHaveBeenCalled();expect(vault.markOnlineVerification).not.toHaveBeenCalled();
+  });
+});
+
+describe('restricted authorization before vault renewal',()=>{
+  const authorization={version:1 as const,userId:'user',organizationId:RESTRICTED_OFFLINE_ORGANIZATION,digest:'a'.repeat(64)};
+  const restricted={...workspace,organizationId:RESTRICTED_OFFLINE_ORGANIZATION,enabledModules:['vigilancia'],scopes:[{organizationId:RESTRICTED_OFFLINE_ORGANIZATION,unitId:'unit'}],offlineAuthorization:authorization} as WorkspaceContext;
+  function vaultFor(stored:WorkspaceContext|null=restricted,baseline:unknown=authorization,hasData=false){
+    return {deviceId:'device',identity:{userId:'user',organizationId:RESTRICTED_OFFLINE_ORGANIZATION},verificationContext:vi.fn(async(key?:string)=>key===OFFLINE_AUTHORIZATION_KEY?baseline:stored),hasStoredVerificationData:vi.fn().mockResolvedValue(hasData),invalidateAuthorization:vi.fn(),markOnlineVerification:vi.fn(),assertIdentity:vi.fn(),putRecord:vi.fn(),listRecords:vi.fn(),acknowledge:vi.fn()} as unknown as OfflineVault;
+  }
+  function responses(current=restricted){
+    const fetcher=vi.fn(async(url:string)=>url.endsWith('/context')?Response.json(current):Response.json({verifiedAt:new Date().toISOString()}));vi.stubGlobal('fetch',fetcher);return fetcher;
+  }
+  it('checks the separately encrypted digest even if DraftTools overwrote workspace without it',async()=>{
+    const vault=vaultFor({...restricted,offlineAuthorization:undefined});const fetcher=responses();
+    await verifyVault(vault,{...restricted,offlineAuthorization:undefined});
+    expect(vault.verificationContext).toHaveBeenCalledWith(OFFLINE_AUTHORIZATION_KEY);
+    expect(vault.markOnlineVerification).toHaveBeenCalledWith(expect.any(String),authorization);expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('quarantines specific grant changes even when membership permissions are identical',async()=>{
+    const vault=vaultFor();const fetcher=responses({...restricted,offlineAuthorization:{...authorization,digest:'b'.repeat(64)}});
+    await expect(synchronizeWork(vault,restricted)).rejects.toThrow('permissões específicas mudaram');
+    expect(vault.invalidateAuthorization).toHaveBeenCalledOnce();expect(vault.markOnlineVerification).not.toHaveBeenCalled();expect(vault.listRecords).not.toHaveBeenCalled();expect(vault.acknowledge).not.toHaveBeenCalled();expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('does not adopt a new fingerprint for a legacy workspace, including an expired vault',async()=>{
+    const vault=vaultFor({...restricted,offlineAuthorization:undefined},null);responses();
+    await expect(verifyVault(vault,restricted)).rejects.toThrow('Cofre antigo');
+    expect(vault.invalidateAuthorization).toHaveBeenCalledOnce();expect(vault.markOnlineVerification).not.toHaveBeenCalled();
+  });
+  it('does not treat absent workspace as a new vault when old drafts or queue records exist',async()=>{
+    const vault=vaultFor(null,null,true);responses();
+    await expect(verifyVault(vault,restricted)).rejects.toThrow('Cofre antigo');
+    expect(vault.hasStoredVerificationData).toHaveBeenCalledOnce();expect(vault.markOnlineVerification).not.toHaveBeenCalled();
+  });
+  it('establishes the first baseline only for a genuinely empty vault after device verification',async()=>{
+    const vault=vaultFor(null,null,false);responses();
+    await verifyVault(vault,{...restricted,offlineAuthorization:undefined});
+    expect(vault.markOnlineVerification).toHaveBeenCalledWith(expect.any(String),authorization);expect(vault.invalidateAuthorization).not.toHaveBeenCalled();
+  });
+  it.each([503,500])('does not invalidate or renew on context outage %s',async status=>{
+    const vault=vaultFor();vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response('{}',{status})));
+    await expect(verifyVault(vault,restricted)).rejects.toThrow('conferir');
+    expect(vault.invalidateAuthorization).not.toHaveBeenCalled();expect(vault.markOnlineVerification).not.toHaveBeenCalled();
+  });
+  it('does not renew when a digest is missing, malformed or bound to another actor',async()=>{
+    for(const token of [undefined,{...authorization,digest:'invalid'},{...authorization,userId:'other'}]){
+      const vault=vaultFor();responses({...restricted,offlineAuthorization:token});
+      await expect(verifyVault(vault,restricted)).rejects.toThrow('não foi renovada');
+      expect(vault.invalidateAuthorization).not.toHaveBeenCalled();expect(vault.markOnlineVerification).not.toHaveBeenCalled();
+    }
+  });
+  it('never persists a first baseline after failed device verification',async()=>{
+    const vault=vaultFor(null,null,false);vi.stubGlobal('fetch',vi.fn(async(url:string)=>url.endsWith('/context')?Response.json(restricted):new Response('{}',{status:503})));
+    await expect(verifyVault(vault,restricted)).rejects.toThrow('validar o dispositivo');expect(vault.markOnlineVerification).not.toHaveBeenCalled();
   });
 });

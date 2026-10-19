@@ -4,6 +4,8 @@ import { proxy } from "./proxy";
 import { runtimeMode } from "./lib/runtime-mode";
 
 const auth = vi.hoisted(() => ({ getUser: vi.fn() }));
+const staging = vi.hoisted(() => ({ allowed: vi.fn() }));
+vi.mock('@/lib/staging-access', () => ({ canUseStaging: staging.allowed }));
 vi.mock("@supabase/ssr", () => ({ createServerClient: () => ({ auth }) }));
 beforeEach(() => {
   vi.stubEnv("SGC_DEMO_MODE", "false");
@@ -11,9 +13,27 @@ beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co");
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "test-key");
   auth.getUser.mockResolvedValue({ data: { user: null } });
+  staging.allowed.mockResolvedValue(true);
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.clearAllMocks(); });
 describe("isolated access modes", () => {
+  it('lets a non-synthetic session explicitly sign in without a redirect loop or automatic deletion', async () => {
+    auth.getUser.mockResolvedValue({ data: { user: { id: 'institutional' } } });
+    staging.allowed.mockResolvedValue(false);
+    const denied = await proxy(new NextRequest('https://preview.test/registrar'));
+    expect(denied.headers.get('location')).toBe('https://preview.test/login?stagingAccess=denied');
+    expect(denied.headers.get('cache-control')).toBe('no-store');
+    const login = await proxy(new NextRequest('https://preview.test/login?stagingAccess=denied'));
+    expect(login.headers.get('location')).toBeNull();
+    expect((await proxy(new NextRequest('https://preview.test/api/v1/work-items'))).status).toBe(403);
+  });
+  it('keeps compatible login redirects and incompatible password recovery reachable', async () => {
+    auth.getUser.mockResolvedValue({ data: { user: { id: 'synthetic' } } });
+    expect((await proxy(new NextRequest('https://preview.test/login'))).headers.get('location')).toBe('https://preview.test/');
+    staging.allowed.mockResolvedValue(false);
+    expect((await proxy(new NextRequest('https://preview.test/login?passwordSetup=recovery'))).headers.get('location')).toBeNull();
+    expect((await proxy(new NextRequest('https://preview.test/auth/confirm?type=recovery'))).headers.get('location')).toBeNull();
+  });
   it("rejects staging configured against production or a mismatched project", () => {
     const staging = { SGC_ENVIRONMENT: "staging", SGC_DEMO_MODE: "false", SGC_STAGING_PROJECT_REF: "abcdefghijklmnopqrst", NEXT_PUBLIC_SUPABASE_URL: "https://abcdefghijklmnopqrst.supabase.co", NEXT_PUBLIC_SUPABASE_ANON_KEY: "synthetic-key" };
     expect(runtimeMode(staging)).toBe("integrated");

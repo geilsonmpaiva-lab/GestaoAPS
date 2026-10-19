@@ -25,15 +25,20 @@ export async function proxy(request: NextRequest) {
   });
 
   const { data } = await client.auth.getUser();
-  if (data.user && request.nextUrl.pathname !== "/login" && !await canUseStaging(client, data.user.id)) {
-    return NextResponse.json({ error: "Esta homologação aceita somente os usuários da organização sintética de testes." }, { status: 403, headers: { "Cache-Control": "no-store" } });
-  }
+  const stagingAllowed = !data.user || await canUseStaging(client, data.user.id);
   const publicPath = ["/login", "/api/v1/health", "/offline.html"].includes(request.nextUrl.pathname);
   const withCookies = (next: NextResponse) => {
     response.cookies.getAll().forEach(cookie => next.cookies.set(cookie));
     next.headers.set("Cache-Control", "no-store");
     return next;
   };
+  if (data.user && !stagingAllowed && request.nextUrl.pathname !== "/login") {
+    if (request.nextUrl.pathname.startsWith('/api/')) return withCookies(NextResponse.json({ error: "Esta homologação aceita somente os usuários da organização sintética de testes." }, { status: 403 }));
+    // Keep the restriction, but allow an explicit sign-in with a synthetic account.
+    // Do not sign out, revoke sessions or erase any local vault automatically.
+    const url = request.nextUrl.clone(); url.pathname = '/login'; url.search = '?stagingAccess=denied';
+    return withCookies(NextResponse.redirect(url));
+  }
   if (!data.user && !publicPath) {
     if (request.nextUrl.pathname.startsWith("/api/")) return withCookies(NextResponse.json({ error: "Autenticação necessária." }, { status: 401 }));
     const url = request.nextUrl.clone();
@@ -43,7 +48,7 @@ export async function proxy(request: NextRequest) {
     return withCookies(NextResponse.redirect(url));
   }
   const isPasswordSetup = request.nextUrl.searchParams.get("passwordSetup") === "recovery";
-  if (data.user && request.nextUrl.pathname === "/login" && !isPasswordSetup) {
+  if (data.user && stagingAllowed && request.nextUrl.pathname === "/login" && !isPasswordSetup) {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     url.search = "";

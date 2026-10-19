@@ -39,6 +39,7 @@ export default function LoginForm({ modern = false }: { modern?: boolean }) {
     queueMicrotask(() => {
       if (!active) return;
       if (callback.error) setMessage(callback.error);
+      else if (new URL(window.location.href).searchParams.get('stagingAccess') === 'denied') setMessage('Esta sessão não pertence à organização sintética. Entre com uma conta de homologação. Nenhum cofre local foi apagado.');
       if (callback.mode) {
         setRecovery(true);
         setLoading(true);

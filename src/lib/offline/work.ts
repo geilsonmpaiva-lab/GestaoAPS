@@ -4,6 +4,7 @@ import type { WorkspaceContext } from "@/lib/server/workspace";
 import type {DetailData} from '@/lib/server/record-detail';
 import {criticalTransition,transitionSnapshot,type TransitionEnvelope} from './transitions';
 import {offlineForm,formSnapshot} from './forms';
+import { OFFLINE_AUTHORIZATION_KEY, RESTRICTED_OFFLINE_ORGANIZATION, isOfflineAuthorization, type OfflineAuthorization } from './authorization';
 
 export type PendingWork={id:string;title:string;scope:{userId:string;organizationId:string;unitId:string|null};endpoint:string;method:"POST"|"PUT";body:Record<string,unknown>;status:"pending"|"confirmed"|"failed"|"conflict";error?:string;server?:unknown;result?:Record<string,unknown>;createdAt:string;resolutionAttempt?:Record<string,unknown>;resolutionStrategy?:string;transition?:TransitionEnvelope};
 // Enable queued mutations only after retry/conflict integration qualification.
@@ -23,7 +24,9 @@ export function isNetworkFailure(error:unknown){return error instanceof TypeErro
 export async function verifyVault(vault:OfflineVault,workspace?:WorkspaceContext){
   // Never overwrite the former permission scope during a downgrade/revocation.
   // Pending data remains quarantined until institutional treatment or logout.
-  const cached=await vault.verificationContext<WorkspaceContext>()??workspace;
+  const storedWorkspace=await vault.verificationContext<WorkspaceContext>();
+  const cached=storedWorkspace??workspace;
+  let verifiedAuthorization:OfflineAuthorization|undefined;
   if(cached){
     const currentResponse=await offlineFetch('/api/v1/offline/context');
     if(currentResponse.status===401||currentResponse.status===403){await vault.invalidateAuthorization();throw new Error('Sessão sem autorização. Pendências cifradas preservadas.');}
@@ -36,12 +39,31 @@ export async function verifyVault(vault:OfflineVault,workspace?:WorkspaceContext
     if(!sameAccount||!scopeAllowed||fingerprint(current)!==fingerprint(cached)||cached.enabledModules?.some(module=>!current.enabledModules.includes(module))){
       await vault.invalidateAuthorization();throw new Error('Conta, vínculo ou permissões mudaram. O cofre foi bloqueado; pendências cifradas preservadas para tratamento autorizado.');
     }
+    const requiresSpecificAuthorization=(context:WorkspaceContext)=>context.organizationId===RESTRICTED_OFFLINE_ORGANIZATION||context.enabledModules?.includes('vigilancia')||context.permissions.some(permission=>permission.domain.startsWith('vigilancia.'));
+    if(requiresSpecificAuthorization(cached)||requiresSpecificAuthorization(current)||current.offlineAuthorization){
+      const currentAuthorization=current.offlineAuthorization;
+      // An unavailable/malformed digest is an outage: neither renew nor invalidate.
+      if(!isOfflineAuthorization(currentAuthorization)||currentAuthorization.userId!==current.userId||currentAuthorization.organizationId!==current.organizationId)throw new Error('Não foi possível conferir as permissões específicas do cofre. A autorização anterior não foi renovada.');
+      const baseline=await vault.verificationContext<OfflineAuthorization>(OFFLINE_AUTHORIZATION_KEY);
+      if(baseline){
+        if(!isOfflineAuthorization(baseline)||baseline.userId!==currentAuthorization.userId||baseline.organizationId!==currentAuthorization.organizationId||baseline.digest!==currentAuthorization.digest){
+          await vault.invalidateAuthorization();throw new Error('As permissões específicas mudaram. O cofre está em quarentena; pendências cifradas preservadas para tratamento autorizado.');
+        }
+      }else if(storedWorkspace||await vault.hasStoredVerificationData()){
+        // Never bless old data with a newly issued digest. Only an empty, new vault
+        // can establish its first baseline; legacy data remains encrypted in place.
+        await vault.invalidateAuthorization();throw new Error('Cofre antigo sem verificação das permissões específicas. Pendências cifradas preservadas em quarentena; solicite tratamento autorizado.');
+      }
+      verifiedAuthorization=currentAuthorization;
+    }
+  }else{
+    throw new Error('Prepare o cofre online com o contexto da conta antes de continuar.');
   }
   const response=await offlineFetch('/api/v1/devices/register',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({deviceId:vault.deviceId,organizationId:vault.identity.organizationId,label:'Dispositivo de trabalho',platform:navigator.userAgent.slice(0,240)})});
   if(response.status===401||response.status===403){await vault.invalidateAuthorization();throw new Error('Sessão ou dispositivo sem autorização. Entre novamente. Pendências cifradas preservadas.');}
   if(!response.ok)throw new Error('Não foi possível validar o dispositivo. Nenhum item foi descartado.');
   const result=await response.json();
-  await vault.markOnlineVerification(result.verifiedAt);
+  await vault.markOnlineVerification(result.verifiedAt,verifiedAuthorization);
   if(workspace)await vault.assertIdentity(workspace.userId,workspace.organizationId);
 }
 export async function queueWork(vault:OfflineVault,workspace:WorkspaceContext,title:string,endpoint:string,method:"POST"|"PUT",body:Record<string,unknown>){

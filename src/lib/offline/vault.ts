@@ -1,6 +1,7 @@
 "use client";
 
 import type { SyncOperation } from "@/lib/domain/contracts";
+import { OFFLINE_AUTHORIZATION_KEY, isOfflineAuthorization, type OfflineAuthorization } from "./authorization";
 
 const DB_NAME = "sgc-ubs-offline";
 const DB_VERSION = 1;
@@ -126,7 +127,7 @@ export class OfflineVault {
     return Promise.all(records.filter(r => r.id.startsWith(prefix)).map(async r => ({id:r.id, value:await decrypt<T>(this.key,r)})));
   }
 
-  async removeRecord(id: string) { await this.assertAuthorized(); await transact(this.db, 'records', 'readwrite', store => store.delete(id)); window.dispatchEvent(new Event('sgc-vault-change')); }
+  async removeRecord(id: string) { if(id===OFFLINE_AUTHORIZATION_KEY)throw new Error('Metadado de autorização reservado.'); await this.assertAuthorized(); await transact(this.db, 'records', 'readwrite', store => store.delete(id)); window.dispatchEvent(new Event('sgc-vault-change')); }
 
   async invalidateAuthorization() {
     const meta=await transact<VaultMeta>(this.db,'meta','readonly',store=>store.get('vault'));
@@ -135,21 +136,45 @@ export class OfflineVault {
     window.dispatchEvent(new Event('sgc-vault-change'));
   }
 
-  async verificationContext<T>() {
+  async verificationContext<T>(id: "workspace" | typeof OFFLINE_AUTHORIZATION_KEY = "workspace") {
     // Only available after PIN verification; used to revalidate an expired
     // authorization, not to render expired business data.
-    const record=await transact<CipherRecord|undefined>(this.db,'records','readonly',store=>store.get('workspace'));
+    if(id!=="workspace"&&id!==OFFLINE_AUTHORIZATION_KEY)throw new Error('Metadado de verificação inválido.');
+    const record=await transact<CipherRecord|undefined>(this.db,'records','readonly',store=>store.get(id));
     return record?decrypt<T>(this.key,record):null;
   }
 
-  async markOnlineVerification(verifiedAt = new Date().toISOString()) {
+  async hasStoredVerificationData() {
+    // Inspect keys/counts only, never decrypt expired drafts or clinical content.
+    const meta=await transact<VaultMeta|undefined>(this.db,'meta','readonly',store=>store.get('vault'));
+    const keys=await transact<IDBValidKey[]>(this.db,'records','readonly',store=>store.getAllKeys());
+    const queued=await transact<number>(this.db,'queue','readonly',store=>store.count());
+    return !meta||!!meta.blocked||meta.verifiedAt>0||queued>0||keys.some(key=>key!=="__verifier"&&key!==OFFLINE_AUTHORIZATION_KEY);
+  }
+
+  async markOnlineVerification(verifiedAt = new Date().toISOString(), authorization?: OfflineAuthorization) {
     const timestamp=Date.parse(verifiedAt);
     if(!Number.isFinite(timestamp)||Math.abs(timestamp-Date.now())>5*60*1000) throw new Error('Horário do dispositivo divergente do servidor. Corrija o relógio antes de continuar.');
-    const meta = await transact<VaultMeta>(this.db, "meta", "readonly", (store) => store.get("vault"));
-    await transact(this.db, "meta", "readwrite", (store) => store.put({ ...meta, blocked:false, verifiedAt: timestamp,lastSeenAt:Date.now() }));
+    if(authorization&&(!isOfflineAuthorization(authorization)||authorization.userId!==this.identity.userId||authorization.organizationId!==this.identity.organizationId))throw new Error('Autorização do cofre pertence a outro contexto.');
+    const record=authorization?await encrypt(this.key,OFFLINE_AUTHORIZATION_KEY,authorization):undefined;
+    // Baseline and expiration are committed together. A crash cannot renew a vault
+    // without persisting its verified restricted-authorization baseline.
+    await new Promise<void>((resolve,reject)=>{
+      const transaction=this.db.transaction(['meta','records'],'readwrite');const store=transaction.objectStore('meta');const request=store.get('vault');
+      request.onsuccess=()=>{
+        const meta=request.result as VaultMeta|undefined;
+        if(!meta||meta.blocked){transaction.abort();return;}
+        if(record)transaction.objectStore('records').put(record);
+        store.put({...meta,verifiedAt:timestamp,lastSeenAt:Date.now()});
+      };
+      transaction.oncomplete=()=>resolve();
+      transaction.onabort=()=>reject(new Error('Cofre em quarentena. Pendências cifradas preservadas para tratamento autorizado.'));
+      transaction.onerror=()=>reject(transaction.error??new Error('Falha ao confirmar a autorização do cofre.'));
+    });
   }
 
   async putRecord<T>(id: string, value: T) {
+    if(id===OFFLINE_AUTHORIZATION_KEY)throw new Error('Metadado de autorização reservado.');
     await this.assertAuthorized();
     const record = await encrypt(this.key, id, value);
     await transact(this.db, "records", "readwrite", (store) => store.put(record));
