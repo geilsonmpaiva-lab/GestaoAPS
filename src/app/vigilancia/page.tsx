@@ -4,13 +4,14 @@ import { notFound } from 'next/navigation';
 import { AppShell } from '@/components/app-shell';
 import { Epidemiology } from '@/components/epidemiology';
 import { epiFilters, type EpiData } from '@/lib/epidemiology';
-import { epidemiologyEnabled, epidemiologyRpc } from '@/lib/server/epidemiology';
+import { epidemiologyEnabled, epidemiologyRpc, epidemiologyStageEnabled } from '@/lib/server/epidemiology';
 import { loadWorkspaceContext } from '@/lib/server/workspace';
 
 export const dynamic = 'force-dynamic';
 export default async function EpidemiologyPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const workspace = await loadWorkspaceContext();
-  if (!epidemiologyEnabled(workspace)) notFound();
+  if (!epidemiologyStageEnabled(workspace)) notFound();
+  if (!epidemiologyEnabled(workspace)) return <AppShell workspace={workspace}><div className="ux-v2"><div className="v2-page"><h1 className="page-title">Vigilância Epidemiológica</h1><section className="v2-panel"><h2>Selecione uma UBS para continuar</h2><p>Use “Unidade de trabalho” no cabeçalho. Os formulários pertencem às equipes da UBS selecionada; o consolidado municipal aparece somente para quem tem permissão específica.</p><p className="v2-muted">Homologação com dados sintéticos. Nenhum registro nominal é carregado nesta tela.</p></section></div></div></AppShell>;
   const access = await epidemiologyRpc(workspace, { action: 'discover' });
   const areas = !access.error && Array.isArray(access.data) ? access.data as string[] : [];
   const params = await searchParams;
