@@ -10,6 +10,7 @@ import Link from "next/link";
 import { safeReturnTo } from "@/lib/ui-labels";
 import { verifyVault, synchronizeWork, workPrefix, type PendingWork } from "@/lib/offline/work";
 import { attachmentPrefix,synchronizeAttachments,type PendingAttachment } from "@/lib/offline/attachments";
+import { loadLongOffline, synchronizeLongOffline } from '@/lib/offline/longitudinal';
 
 export function OfflineStatus({workspace}: {workspace?:WorkspaceContext}) {
   const [ready, setReady] = useState(false);
@@ -43,7 +44,9 @@ export function OfflineStatus({workspace}: {workspace?:WorkspaceContext}) {
         if (workspace) await active.assertIdentity(workspace.userId,workspace.organizationId);
         const pendingWork=workspace?(await active.listRecords<PendingWork>(workPrefix(workspace))).filter(row=>row.value.status!=='confirmed').length:0;
         const pendingFiles=workspace?(await active.listRecords<PendingAttachment>(attachmentPrefix(workspace))).filter(row=>row.value.status!=='confirmed').length:0;
-        setPending((await active.queued()).length+pendingWork+pendingFiles); setVault(active);
+        const longitudinal = workspace?.uxV3 && workspace.unitId && workspace.organizationId === '362db1a9-bfdd-4334-9436-46b1c0117eab' ? await loadLongOffline(active, workspace) : null;
+        const longCount = longitudinal ? longitudinal.jobs.filter(j => !['confirmed', 'cancelled'].includes(j.status)).length + longitudinal.files.filter(f => f.status !== 'confirmed').length : 0;
+        setPending((await active.queued()).length+pendingWork+pendingFiles+longCount); setVault(active);
         if (workspace) setDrafts((await active.listRecords<SavedDraft>(`draft:${workspace.userId}:${workspace.organizationId}:${workspace.unitId ?? 'org'}:`)).map(r=>r.value));
       } catch { setVault(null); setDrafts([]); setMessage('Desbloqueie e valide o cofre para continuar.'); }
     };
@@ -87,6 +90,7 @@ export function OfflineStatus({workspace}: {workspace?:WorkspaceContext}) {
       await verifyDevice(vault);
       if (workspace) await vault.assertIdentity(workspace.userId,workspace.organizationId);
       if(workspace){await synchronizeAttachments(vault,workspace);await synchronizeWork(vault,workspace);}
+      if(workspace?.uxV3 && workspace.unitId && workspace.organizationId === '362db1a9-bfdd-4334-9436-46b1c0117eab') await synchronizeLongOffline(vault,workspace);
       const operations = await vault.queued();
       for (let offset=0;offset<operations.length;offset+=100) {
         const response = await fetch("/api/v1/sync/batches", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cursor: null, operations:operations.slice(offset,offset+100) }) });

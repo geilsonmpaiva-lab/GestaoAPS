@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { DraftTools } from './draft-tools';
+import { PrepareLongitudinalOffline } from './longitudinal-offline';
 import { epiStates } from '@/lib/epidemiology';
 import { longitudinalFields, longitudinalHeaders, longitudinalDoubts, type LongData, type LongArea, type LongReport, type LongField } from '@/lib/epidemiology-longitudinal';
 import type { WorkspaceContext } from '@/lib/server/workspace';
@@ -58,6 +59,7 @@ export function EpidemiologyLongitudinal({ workspace, data, report, filters }: {
   }
   const reportQuery = (scope: string, nominal = false, revision?: number) => new URLSearchParams({ area: filters.area, month: filters.month, scope, ...(scope === 'team' ? { team: teamId } : {}), ...(nominal ? { nominal: 'true' } : {}), ...(revision ? { revision: String(revision) } : {}) });
   return <>
+    <PrepareLongitudinalOffline workspace={workspace} query={{ area: filters.area, month: filters.month, team: teamId, ...(data.selected ? { case: data.selected.id } : {}) }} disabled={dirty || blocked || !!data.source} />
     <p className="v2-alert">Somente dados sintéticos. Um caso permanece o mesmo entre competências; cada acompanhamento tem sua própria versão. Novos lançamentos são confirmados online. Não é prontuário nem recomendação clínica.</p>
     <details className="v2-panel"><summary>Dúvidas de interpretação mantidas</summary><ul>{longitudinalDoubts.map(s => <li key={s}>{s}</li>)}</ul></details>
     <form action="/vigilancia/acompanhamentos" className="v2-toolbar" onSubmit={e => { if (dirty || blocked || reason) { e.preventDefault(); setError('Salve ou descarte as edições antes de trocar o recorte.'); } }}>
@@ -94,7 +96,7 @@ export function EpidemiologyLongitudinal({ workspace, data, report, filters }: {
         <h3>Registros anteriores ainda não vinculados · {data.sourceTotal}</h3><p>Vincule apenas após conferir a origem. Não há união por nome, número ou semelhança.</p>{data.sources.map(s => <article key={s.id}><Link href={url({ source: s.id, team: s.team_id })}>Continuar {String(s.payload.name)} · origem {s.competency}</Link></article>)}
         {Math.max(data.total, data.sourceTotal) > 25 && <nav className="v2-pagination" aria-label="Paginação de casos e origens">{filters.page > 1 && <Link href={url({ page: String(filters.page - 1) })}>Anterior</Link>}<span>Página {filters.page} · até 25 casos e 25 origens</span>{filters.page * 25 < Math.max(data.total, data.sourceTotal) && <Link href={url({ page: String(filters.page + 1) })}>Próxima</Link>}</nav>}
       </section>
-      {data.selected && <section className="v2-panel v2-section"><h2>Histórico entre competências</h2>{data.history.map(v => <p key={v.id}><Link href={url({ case: data.selected!.id, month: v.competency })}>{v.competency} · {epiStates[v.status]} · versão {v.version}</Link></p>)}<details><summary>Revisões auditadas preservadas ({data.revisions.length})</summary>{data.revisions.map((r, i) => <details key={i}><summary>{r.snapshot.competency} · versão {r.snapshot.version} · {r.action} · {new Date(r.createdAt).toLocaleString('pt-BR')}</summary><dl>{fields.map(f => <div key={f.key}><dt>{f.label}</dt><dd>{r.snapshot.payload[f.key] ?? 'Não informado'}</dd></div>)}</dl><p>{r.reason}</p></details>)}</details></section>}
+      {data.selected && <section className="v2-panel v2-section"><h2>Histórico entre competências</h2>{data.history.map(v => <p key={v.id}><Link href={url({ case: data.selected!.id, month: v.competency })}>{v.competency} · {epiStates[v.status]} · versão {v.version}</Link></p>)}<details><summary>Revisões auditadas preservadas ({data.revisions.length})</summary>{data.revisions.map((r, i) => <details key={i}><summary>{r.snapshot.competency} · versão {r.snapshot.version ?? 'anexo'} · {r.action} · {new Date(r.createdAt).toLocaleString('pt-BR')}</summary>{r.snapshot.payload ? <dl>{fields.map(f => <div key={f.key}><dt>{f.label}</dt><dd>{r.snapshot.payload[f.key] ?? 'Não informado'}</dd></div>)}</dl> : <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(r.snapshot, null, 2)}</pre>}<p>{r.reason}</p></details>)}</details></section>}
     </>}
     <section className="v2-panel v2-section"><h2>Fechamento e relatórios integrados</h2>{!report ? <p role="alert">Consolidação indisponível. Nenhum total foi presumido.</p> : <>
       <p>Inclui registros anteriores e acompanhamentos novos. Um vínculo explícito não duplica a mesma origem na mesma competência. Contagem não significa incidência nem casos confirmados.</p>

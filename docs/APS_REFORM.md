@@ -4,6 +4,8 @@ Objetivo aprovado: registrar uma vez na equipe, acompanhar revisão na UBS e con
 
 ## Decisões de produto
 
+Atualização da sequência: etapa 3 entregue em homologação; etapa 4 implementada e testada com dados sintéticos, com evidências e limites em [APS_LONGITUDINAL.md](APS_LONGITUDINAL.md). Os registros abaixo das etapas 1–2 são o histórico da auditoria, não o status corrente das etapas 3–4. Aceite observado e homologação física continuam pendentes; não houve promoção para produção.
+
 - Público inicial: profissional da equipe; gerência e referência técnica recebem filas próprias.
 - Função + área + abrangência; cargo profissional não concede acesso. Dados nominais e exportação nominal dependem de concessão específica pela autoridade designada.
 - Acúmulo de responsabilidades explícito; autoaprovação não passa a ser liberada pela reforma visual.

@@ -17,7 +17,7 @@ SINAN/número confirmado, contatos/contatos examinados e tipo/classificação op
 
 O fechamento usa as revisões mensais existentes e congela registros anteriores, novos acompanhamentos e cabeçalhos. Uma proteção aditiva impede clientes antigos de fechar snapshots parciais quando há novos acompanhamentos. Reabrir não modifica o snapshot anterior. Cabeçalhos divergentes bloqueiam o fechamento até conferência.
 
-Rascunhos podem ser salvos explicitamente no cofre cifrado já existente. Isto **não** homologa navegação offline, nova fila de sincronização ou anexos nominais: são pendências da etapa 4. Falhas de envio preservam o envelope; nenhuma transição é confirmada sem servidor.
+Rascunhos podem ser salvos explicitamente no cofre cifrado. A etapa 4 abaixo acrescenta navegação pela página pública offline, fila e anexos restritos. Falhas de envio preservam o envelope; nenhuma transição é confirmada sem servidor.
 
 ## Migration e verificações
 
@@ -46,4 +46,22 @@ Regressão local final: 96 jornadas V2 (Chromium desktop/mobile e WebKit mobile)
 
 Após as jornadas, os hashes dos 562 registros anteriores, 62 mapas ESF e seis snapshots anteriores à migration continuaram iguais. Apenas novos casos, acompanhamentos e revisões sintéticos foram acrescentados. As tentativas intermediárias também foram mantidas, não apagadas.
 
-Validação institucional de campos e opções; confirmação manual de vínculos antigos; sessão observada; leitor de tela e aparelhos físicos. Offline longitudinal integral e anexos ficam para a etapa 4. Nenhum desses itens é declarado resolvido por testes sintéticos.
+Validação institucional de campos e opções; confirmação manual de vínculos antigos; sessão observada; leitor de tela e aparelhos físicos. Nenhum desses itens é declarado resolvido por testes sintéticos.
+
+## Etapa 4 — offline longitudinal (19/10/2026)
+
+Restrito ao Preview, flag APS V3 e organização sintética. Preparar online na tela do acompanhamento; depois abrir `/offline`, informar PIN e selecionar o recorte cifrado. A adoção de origens anteriores continua explicitamente online. Salvamento do rascunho é explícito; não há salvamento automático prometido.
+
+- Snapshot e rascunho segregados por conta, organização, UBS, equipe, área, competência e classificação. HTML/RSC/API autenticados e nomes não são armazenados pelo service worker. A navegação sem rede usa somente a página pública estática.
+- Envelope imutável, versão preparada e identificador idempotente. Gravações são enviadas antes dos anexos e das transições críticas. Conflitos bloqueiam alterações e preservam cliente/base/servidor; decisões explícitas são autorizadas e auditadas. Alterações posteriores não substituem silenciosamente o rascunho preparado.
+- PDF/PNG/JPEG até 25 MB em bucket privado, caminhos opacos, hash/tamanho/formato verificados antes da confirmação e novamente no download. Interrupção retoma por reenvio integral idempotente, não por blocos. Cópia local só fica disponível offline quando preparada/cifrada explicitamente.
+- Validação do dispositivo e fingerprint de acesso antes da sincronização. Revogação é detectada na reconexão; expiração local em 72 horas bloqueia leitura sem apagar pendências. Não se promete revogação instantânea enquanto o dispositivo está sem rede.
+- Fechamento/transições dependem do servidor. Anexos pendentes e conflitos impedem fechamento; snapshots novos incluem os metadados dos anexos confirmados. Relatórios antigos não são reescritos.
+
+Migration `20261019215149_epidemiology_longitudinal_offline_v1` aplicada após testes isolados: três tabelas privadas, cinco funções novas e proteções aditivas. As 311 funções anteriores mantiveram hash `abcbfd01fa920e5a9723dacc234e10d6`; os quatro casos, sete acompanhamentos e dez snapshots existentes estavam idênticos imediatamente após o DDL. Nenhuma função anterior foi substituída. Advisors sem achados nos novos objetos; alertas preexistentes continuam pendentes.
+
+Verificações: 433 testes unitários; 530 asserções SQL/RLS em 17 arquivos no banco isolado, sem reset do banco anterior. Duas jornadas reais em Chromium local com Supabase hospedado e contas sintéticas: processo fechado/reaberto duas vezes sem rede; PIN incorreto; recuperação de rascunho/anexo; cifragem; resposta perdida após commit; upload interrompido/repetido; edição concorrente pelo gerente; conflito e resolução RETRY; envio à UBS; largura de 320px; expiração simulada de 73 horas; revogação de dispositivo recém-criado e quarentena preservando os registros cifrados. Corrigidos agrupamento indevido de rascunho como snapshot, leitura de eventos de anexos no histórico e nome acessível do seletor de resolução.
+
+Regressão final adicional: 96 jornadas V2 (Chromium desktop/mobile e WebKit mobile) e oito APS V3 aprovadas. Lint, TypeScript e builds de demonstração/homologação aprovados. Após os testes, os hashes dos 562 registros anteriores, 62 mapas ESF, quatro casos e sete acompanhamentos anteriores continuaram iguais. Os dez snapshots anteriores foram preservados; as fixtures novas permaneceram no histórico sintético.
+
+Limites: essas jornadas integradas não são uma suíte offline executada no Preview protegido por SSO. Safari/iPhone, instalação física, baixo armazenamento/arquivos no limite e aceite observado ainda exigem homologação própria. Nenhuma liberação de dados sensíveis reais ou publicação em produção foi feita.
