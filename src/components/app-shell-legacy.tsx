@@ -62,7 +62,7 @@ export function AppShellLegacy({ children, workspace }: { children: React.ReactN
           <div className="nav-label">Operação</div>
           {primary.map((item) => <NavItem key={item.href} item={item} pathname={pathname} />)}
           <div className="nav-label">Domínios</div>
-          {domains.map((item) => <NavItem key={item.href} item={item} pathname={pathname} />)}
+          {domains.filter(item => item.href !== '/vigilancia' || workspace?.enabledModules.includes('vigilancia')).map((item) => <NavItem key={item.href} item={item} pathname={pathname} />)}
         </nav>
         <div className="sidebar-foot">
           <Link className="nav-link" data-active={pathname.startsWith("/administracao")} href="/administracao"><Settings2 size={17} />Administração</Link>

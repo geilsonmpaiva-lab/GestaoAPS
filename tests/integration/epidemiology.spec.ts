@@ -11,6 +11,7 @@ async function login(page: Page, role: string) {
   await page.getByRole('button', { name: 'Entrar', exact: true }).click(); await expect(page.getByRole('heading', { name: 'Prioridades da unidade' })).toBeVisible();
 }
 async function clickCommand(page: Page, name: string) {
+  await expect(page.getByRole('button', { name, exact: true })).toBeEnabled();
   const pending = page.waitForResponse(r => new URL(r.url()).pathname === '/api/v1/epidemiology' && r.request().method() === 'POST');
   await page.getByRole('button', { name, exact: true }).click(); const response = await pending; expect(response.status()).toBe(200);
   const result = await response.json(); await expect(page.locator('form').filter({ has: page.locator('.epi-fields') })).toContainText(`versão ${result.version}`); return result;
@@ -46,6 +47,9 @@ test('epidemiology: nine forms, persisted data, explicit workflow, scopes and ag
     }
     expect(first).toBeTruthy();
     await login(admin, 'ADMIN_SISTEMA');
+    const adminScope = admin.getByRole('combobox', { name: 'Unidade de trabalho', exact: true });
+    const scopeA = await adminScope.locator('option').filter({ hasText: 'UBS Sintética A' }).getAttribute('value'); expect(scopeA).toBeTruthy();
+    await adminScope.selectOption(scopeA!); await expect(adminScope).toHaveValue(scopeA!); await expect(adminScope).toBeEnabled();
     await admin.goto(`/vigilancia?area=hanseniase&month=${month}&record=${first!.id}`);
     await clickCommand(admin, 'Validar pela vigilância');
     await expect(admin.getByRole('button', { name: 'Fechar registro', exact: true })).toBeVisible();
@@ -63,7 +67,30 @@ test('epidemiology: nine forms, persisted data, explicit workflow, scopes and ag
     expect((await manager.request.get(`/api/v1/epidemiology?area=hanseniase&month=${month}&team=${data.municipalSummary.find((r: { unitId: string }) => r.unitId !== first!.unit_id).teamId}`)).status()).toBe(403);
     const readerData = await (await reader.request.get(`/api/v1/epidemiology?area=hanseniase&month=${month}`)).json();
     expect(readerData.records).toEqual([]); expect(readerData.municipal).toBe(false);
-  } finally { await managerContext.close(); await adminContext.close(); await readerContext.close(); }
+  } finally { await Promise.all([managerContext.close().catch(() => {}), adminContext.close().catch(() => {}), readerContext.close().catch(() => {})]); }
+});
+test('epidemiology: UBS B contributes to municipality without exposing names to its aggregate-only reader', async ({ browser }) => {
+  test.setTimeout(120000); const context = await browser.newContext(); const page = await context.newPage();
+  const readerContext = await browser.newContext(); const reader = await readerContext.newPage();
+  try {
+    await login(page, 'ADMIN_SISTEMA');
+    const scope = page.getByRole('combobox', { name: 'Unidade de trabalho', exact: true });
+    const scopeB = await scope.locator('option').filter({ hasText: 'UBS Sintética B' }).getAttribute('value'); expect(scopeB).toBeTruthy();
+    const changed = page.waitForResponse(r => r.url().includes('/api/v1/workspace/scope') && r.request().method() === 'POST');
+    await scope.selectOption(scopeB!); expect((await changed).status()).toBe(200); await expect(scope).toHaveValue(scopeB!); await expect(scope).toBeEnabled();
+    await page.goto(`/vigilancia?area=hanseniase&month=${month}`);
+    await page.getByLabel('Equipe responsável', { exact: true }).selectOption({ label: '[SINTÉTICO] Vigilância B' });
+    const name = `[SINTÉTICO] UBS B ${randomUUID().slice(0, 8)}`;
+    await page.locator('input[name="epi-name"]').fill(name); await page.locator('input[name="epi-date"]').fill('2028-04-05');
+    const saved = await clickCommand(page, 'Salvar rascunho'); await expect(page).toHaveURL(new RegExp(`record=${saved.id}`));
+    const overview = await (await page.request.get(`/api/v1/epidemiology?area=hanseniase&month=${month}`)).json();
+    expect(overview.municipal).toBe(true); expect(overview.municipalSummary.find((r: { teamId: string }) => r.teamId === saved.team_id).total).toBeGreaterThan(0);
+    await login(reader, 'LEITOR'); await reader.goto(`/vigilancia?area=hanseniase&month=${month}`);
+    const read = await (await reader.request.get(`/api/v1/epidemiology?area=hanseniase&month=${month}`)).json();
+    expect(read.records).toEqual([]); expect(read.unitSummary.find((r: { teamId: string }) => r.teamId === saved.team_id).total).toBeGreaterThan(0);
+    expect(JSON.stringify(read)).not.toContain(name); expect(read.municipal).toBe(false);
+    expect((await reader.request.get(`/api/v1/epidemiology?area=hanseniase&month=${month}&record=${saved.id}`)).status()).toBe(403);
+  } finally { await Promise.all([context.close().catch(() => {}), readerContext.close().catch(() => {})]); }
 });
 test('epidemiology: pagination, retry, conflict and network failure preserve edits', async ({ page }) => {
   test.setTimeout(240000); await login(page, 'GERENTE_UBS');
