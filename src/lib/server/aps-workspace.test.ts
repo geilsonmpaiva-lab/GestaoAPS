@@ -8,6 +8,10 @@ function fixture(): ApsWorkspace {
   return { month: '2026-10', updatedAt: '', errors: [], availableAreas: [], production: { enabled: false, data: null, reason: '' }, areas: [{ id: 'hanseniase', title: 'Hanseníase', municipal: false, teams: [{ id: 'a', name: 'Equipe A', view: true, write: true, review: true, validate: false, close: false }], report: { organizationName: '', area: 'hanseniase', month: '2026-10', scope: 'unit', nominal: false, generatedAt: '', definitive: false, total: 51, teams: [team, { ...team, teamId: 'b', teamName: 'Outra equipe' }] } }] };
 }
 describe('authorized work items', () => {
+  it('routes longitudinal cases to the single entry without exposing names', () => {
+    const data = fixture(); data.longitudinal = true;
+    expect(apsWorkItems(data)[0].href).toBe('/vigilancia/acompanhamentos?area=hanseniase&month=2026-10&team=a');
+  });
   it('paginates more than fifty authorized deliveries without losing the filtered total', () => {
     const data = fixture();
     const source = data.areas[0].report!.teams[0];

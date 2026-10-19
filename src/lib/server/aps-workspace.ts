@@ -4,15 +4,18 @@ import { epiAreas, type EpiData } from '@/lib/epidemiology';
 import type { EpiMonthReport } from '@/lib/epidemiology-monthly';
 import { localEsfDate, type EsfProductionData } from '@/lib/esf/production';
 import { mayOperate } from '@/lib/aps-policy';
+import { longitudinalHref } from '@/lib/epidemiology-longitudinal';
 import { createSupabaseServerClient, isDemoMode } from './supabase';
 import { loadEsfProduction, loadEsfTeams } from './esf';
-import { epidemiologyMonthlyRpc, epidemiologyRpc } from './epidemiology';
+import { epidemiologyRpc } from './epidemiology';
+import { longitudinalMonthlyRpc as epidemiologyMonthlyRpc } from './epidemiology-longitudinal';
 import type { WorkspaceContext } from './workspace';
 
 export const apsFilters = z.object({ month: z.string().regex(/^20\d{2}-(0[1-9]|1[0-2])$/).default(() => localEsfDate().slice(0, 7)), area: z.enum(['', ...epiAreas.map(a => a.id)] as [string, ...string[]]).default(''), team: z.uuid().optional(), page: z.coerce.number().int().min(1).max(100000).default(1), search: z.string().trim().max(100).default(''), status: z.enum(['', 'Fechado', 'Sem declaração', 'Com pendências', 'Pronto para fechamento', 'Em preenchimento', 'Aguardando revisão']).default('') }).strict();
 export type ApsFilters = z.infer<typeof apsFilters>;
 export type ApsArea = { id: string; title: string; teams: { id: string; name: string; view: boolean; write: boolean; review: boolean; validate: boolean; close: boolean }[]; municipal: boolean; report: EpiMonthReport | null; error?: string };
 export type ApsWorkspace = {
+  longitudinal?: boolean;
   month: string; updatedAt: string; areas: ApsArea[]; availableAreas: { id: string; title: string }[]; errors: string[];
   production: { enabled: boolean; data: EsfProductionData | null; teamId?: string; deliveries?: { teamId: string; data: EsfProductionData }[]; reason: string };
 };
@@ -21,6 +24,7 @@ export type ApsWorkspace = {
 export async function loadApsWorkspace(workspace: WorkspaceContext, filters: ApsFilters): Promise<ApsWorkspace> {
   const result: ApsWorkspace = { month: filters.month, updatedAt: new Date().toISOString(), areas: [], availableAreas: [], errors: [], production: { enabled: false, data: null, reason: '' } };
   if (!workspace.uxV3) throw new Error('Experiência não habilitada.');
+  result.longitudinal = true;
   if (!workspace.unitId) {
     const scopes = workspace.scopes.filter(s => s.organizationId === workspace.organizationId && s.unitId);
     if (!scopes.length || !workspace.enabledModules.includes('vigilancia')) return result;
@@ -117,7 +121,7 @@ export function apsWorkItems(data: ApsWorkspace): ApsWorkItem[] {
     const recordView = nextAction === 'Revisar envios' || nextAction === 'Validar registros' || nextAction === 'Preencher registros';
     items.push({ id: `${area.id}:${month.teamId}`, title: area.title, team: month.teamName, unitId: month.unitId, unitName: month.unitName, area: area.id, status, nextAction, href: `/vigilancia?${new URLSearchParams({ area: area.id, month: data.month, team: month.teamId, view: recordView ? 'records' : 'monthly', ...(nextAction === 'Revisar envios' ? { status: 'SUBMITTED' } : nextAction === 'Validar registros' ? { status: 'REVIEWED' } : {}) })}`, total: month.total, pending: month.pending });
   }
-  return items;
+  return data.longitudinal ? items.map(item => ['hanseniase', 'tuberculose'].includes(item.area) ? { ...item, href: longitudinalHref(item.area, data.month, item.id.slice(item.area.length + 1)) } : item) : items;
 }
 
 export function apsWorkPage(data: ApsWorkspace, filters: Pick<ApsFilters, 'page' | 'search' | 'status'>) {

@@ -1,0 +1,8 @@
+/* Both longitudinal source forms are landscape. Keep page sizing isolated from
+   the legacy epidemiology report's default portrait page. */
+@page longitudinal-landscape { size: A4 landscape; margin: 5mm; }
+@media print {
+  html:has(.longitudinal-print), body:has(.longitudinal-print) { background: white !important; margin: 0; padding: 0; }
+  .longitudinal-print, .longitudinal-print .esf-paper-sheet, .longitudinal-print .esf-paper-annex { page: longitudinal-landscape !important; }
+  .longitudinal-print.esf-faithful-print { width: 287mm; max-width: none; }
+}

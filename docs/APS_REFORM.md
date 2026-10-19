@@ -27,6 +27,8 @@ A migration de preparação sintética cria uma RPC adicional; sua aplicação n
 
 ## Sequência e aceite
 
+Atualização da etapa 3: implementação longitudinal e evidências em [APS_LONGITUDINAL.md](APS_LONGITUDINAL.md). O diagnóstico de lacunas registrado abaixo permanece como histórico anterior à implementação. Offline integral e aceite observado/físico continuam pendentes.
+
 1. Protótipo funcional: início, registrar, pendências e gestão de acesso, com demonstração declarada.
 2. Jornada real sintética de produção → revisão → devolução/correção → fechamento → PDF/Excel.
 3. Entrada canônica dos acompanhamentos e preservação dos arquivos anteriores; validar o mapa de equivalências antes de derivar documentos de campos ainda ausentes.
