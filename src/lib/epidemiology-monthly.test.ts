@@ -31,6 +31,8 @@ describe('epidemiology monthly contracts and XLSX', () => {
     expect(s.getCell('F61').value).toBe('[SINTÉTICO] Pessoa 50');
     s.eachRow(r => r.eachCell(c => expect(c.type).not.toBe(ExcelJS.ValueType.Formula)));
     expect(book.getWorksheet('Consolidado')!.getCell('E12').value).toBe(51);
+    expect(book.getWorksheet('Consolidado')!.getCell('B12').value).toBeNull();
+    expect(book.getWorksheet('Consolidado')!.getCell('J10').value).toBe('Justificativa restrita');
   });
   it('aggregate export has no nominal worksheet or payload', async () => {
     const book = new ExcelJS.Workbook(); await book.xlsx.load(await epidemiologyWorkbook(report()));

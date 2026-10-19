@@ -77,13 +77,32 @@ test('monthly epidemiology: 51 records, permissions, snapshots, reopen, PDF and 
     await monthlyAction(admin, 'Reabrir competência da equipe'); await expect(panel).toContainText('Em preenchimento');
     const historical = await (await admin.request.get('/api/v1/epidemiology/monthly?' + reportQuery + '&revision=1')).json(); expect(historical.total).toBe(51); expect(historical.definitive).toBe(true);
     const current = await (await admin.request.get('/api/v1/epidemiology/monthly?' + reportQuery)).json(); expect(current.definitive).toBe(false);
+    let revisedVersion = 4;
+    for (const action of ['return', 'save', 'submit', 'review', 'validate']) {
+      const r = await admin.request.post('/api/v1/epidemiology', { data: { ...envelope, entityId: first.id, operationId: randomUUID(), expectedVersion: revisedVersion, action, reason: 'Correção exclusiva da ficha sintética desta jornada', payload: action === 'save' ? { ...first.payload, contacts: 7 } : {} } });
+      expect(r.status()).toBe(200); revisedVersion = (await r.json()).version;
+    }
+    await admin.reload(); await panel.getByLabel('Equipe do fechamento', { exact: true }).selectOption(first.team_id);
+    const closedAgain = await monthlyAction(admin, 'Fechar competência da equipe'); expect(closedAgain.revision).toBe(2); await expect(panel).toContainText('Competência fechada');
+    const previous = await (await admin.request.get('/api/v1/epidemiology/monthly?' + reportQuery + '&revision=1')).json();
+    const latest = await (await admin.request.get('/api/v1/epidemiology/monthly?' + reportQuery + '&revision=2')).json();
+    expect(previous.teams[0].records.find((r: { id: string }) => r.id === first.id).payload.contacts).toBe(0);
+    expect(latest.teams[0].records.find((r: { id: string }) => r.id === first.id).payload.contacts).toBe(7);
     // A no-activity declaration is explicit and cannot be confused with an empty month.
     const all = await (await admin.request.get('/api/v1/epidemiology/monthly?' + areaQuery)).json();
     const second = all.teams.find((t: { teamName: string }) => t.teamName === '[SINTÉTICO] Vigilância A2'); expect(second).toBeTruthy();
     await panel.getByLabel('Equipe do fechamento', { exact: true }).selectOption(second.teamId);
     await expect(admin.getByRole('button', { name: 'Fechar competência da equipe', exact: true })).toBeDisabled();
     await panel.getByLabel(/Confirmo ausência de atividade/).check(); await panel.getByLabel('Justificativa do fechamento ou reabertura').fill('Ausência de atividade sintética confirmada para teste');
-    await monthlyAction(admin, 'Fechar competência da equipe'); await expect(panel).toContainText('Competência fechada');
+    // The server commits, but the response is lost. Retry must use the original operation.
+    let lostBody = '';
+    await admin.route('**/api/v1/epidemiology/monthly', async route => { lostBody = route.request().postData()!; const r = await route.fetch(); expect(r.status()).toBe(200); await route.abort(); });
+    admin.once('dialog', d => d.accept()); await admin.getByRole('button', { name: 'Fechar competência da equipe', exact: true }).click();
+    await expect(panel.getByRole('alert')).toContainText('Falha de conexão'); await admin.unroute('**/api/v1/epidemiology/monthly');
+    const repeated = admin.waitForResponse(r => new URL(r.url()).pathname === '/api/v1/epidemiology/monthly' && r.request().method() === 'POST');
+    await admin.getByRole('button', { name: 'Tentar novamente o mesmo comando mensal', exact: true }).click(); const confirmed = await repeated;
+    expect(confirmed.status()).toBe(200); expect(confirmed.request().postData()).toBe(lostBody); expect((await confirmed.json()).revision).toBe(1);
+    await expect(panel).toContainText('Competência fechada');
     await admin.setViewportSize({ width: 320, height: 780 }); expect(await admin.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await admin.screenshot({ path: `${artifactRoot}/epidemiology-monthly-mobile.png`, fullPage: true });
     await login(reader, 'LEITOR');

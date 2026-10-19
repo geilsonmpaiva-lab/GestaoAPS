@@ -1,4 +1,5 @@
--- Additive synthetic-only monthly revisions. Existing RPCs and records are preserved.
+-- Additive synthetic-only monthly revisions; version aligned with Supabase history.
+-- Existing RPCs and records are preserved.
 create table app.epi_months_v1 (
  organization_id uuid not null check(organization_id='362db1a9-bfdd-4334-9436-46b1c0117eab'),
  unit_id uuid not null, team_id uuid not null, area text not null, competency text not null,

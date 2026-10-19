@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { epiAreas, epiStates, type EpiData, type EpiRecord, type EpiSummary } from '@/lib/epidemiology';
@@ -24,7 +24,9 @@ export function Epidemiology({ initial, filters, areas, monthly }: { initial: Ep
   const [record, setRecord] = useState<EpiRecord | null>(initial.selected);
   const [values, setValues] = useState<Record<string, string | number>>(initial.selected?.payload ?? {});
   const [teamId, setTeamId] = useState(initial.selected?.team_id ?? filters.team ?? initial.teams[0]?.id ?? '');
-  const [reason, setReason] = useState(''); const [busy, setBusy] = useState(false); const [dirty, setDirty] = useState(false);
+  const [navigating, startNavigation] = useTransition();
+  const [reason, setReason] = useState(''); const [sending, setBusy] = useState(false); const [dirty, setDirty] = useState(false);
+  const busy = sending || navigating;
   const [error, setError] = useState(''); const [message, setMessage] = useState('');
   const [pending, setPending] = useState<{ action: string; body: string } | null>(null);
   useEffect(() => {
@@ -53,7 +55,12 @@ export function Epidemiology({ initial, filters, areas, monthly }: { initial: Ep
       if (!response.ok) { setPending(null); throw new Error(result.error || 'Comando não confirmado.'); }
       setRecord(result); setValues(result.payload); setDirty(false); setPending(null); setReason('');
       setMessage('Confirmado pelo servidor. Listas e consolidados serão atualizados.');
-      router.replace(href({ record: result.id, team: teamId })); router.refresh();
+      startNavigation(() => {
+        // One RSC navigation per confirmation; a concurrent replace + refresh could
+        // remount a new detail from the earlier version while the next command ran.
+        if (filters.record !== result.id || filters.team !== teamId) router.replace(href({ record: result.id, team: teamId }));
+        else router.refresh();
+      });
     } catch (e) { setError((e instanceof TypeError ? 'Falha de conexão. Nenhum envio foi confirmado.' : e instanceof Error ? e.message : 'Não foi possível confirmar o envio.') + ' As edições permanecem nesta tela. Em falha de rede, tente o mesmo comando novamente.'); }
     finally { setBusy(false); }
   }
@@ -77,7 +84,7 @@ export function Epidemiology({ initial, filters, areas, monthly }: { initial: Ep
     {error && <p role="alert" className="v2-alert">{error}</p>}{message && <p role="status">{message}</p>}
     <section className="v2-section"><h2>Consolidado da UBS · {filters.month}</h2><p className="v2-muted">Registros únicos por identificador interno, incluindo rascunhos. Não representa incidência, casos confirmados ou fechamento mensal. Todos os estados aparecem separados. As dúvidas de classificação continuam válidas.</p><Summary rows={initial.unitSummary} /></section>
     {initial.municipal && <section className="v2-section"><h2>Consolidado municipal autorizado · {filters.month}</h2><p className="v2-muted">Equipe → UBS → município. Sem nomes ou causas. Abrange somente equipes às quais seu perfil tem acesso.</p><p>Total: <strong>{initial.municipalSummary.reduce((n, r) => n + r.total, 0)}</strong> registros</p><Summary rows={initial.municipalSummary} /></section>}
-    <EpidemiologyMonthly report={monthly} area={filters.area} month={filters.month} teams={initial.teams} blocked={!hydrated || busy || dirty || !!pending} municipal={initial.municipal} />
+    <EpidemiologyMonthly report={monthly} area={filters.area} month={filters.month} teams={initial.teams} blocked={!hydrated || busy || dirty || !!pending} municipal={initial.municipal} initialTeam={filters.team ?? initial.selected?.team_id} />
     <section className="v2-panel v2-section"><h2>{record ? 'Detalhe e acompanhamento' : 'Novo registro sintético'} · {definition.title}</h2>
       {!permissions.view ? <p>Acesso somente aos consolidados. Dados nominais e comandos indisponíveis.</p> : <form onSubmit={e => { e.preventDefault(); void command('save'); }} autoComplete="off">
         <p>{record ? `${epiStates[record.status]} · versão ${record.version}` : 'Rascunho não salvo'} · Modelo v1</p>

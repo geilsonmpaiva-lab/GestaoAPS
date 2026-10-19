@@ -28,12 +28,12 @@ export async function epidemiologyWorkbook(report: EpiMonthReport) {
     s.pageSetup = { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, printTitlesRow: '10:10' };
     return s;
   }
-  const summary = sheet('Consolidado', ['UBS', 'Equipe', 'Situação mensal', 'Revisão', 'Registros', 'Sem validação', 'Ausência declarada', 'Fechado em (UTC)', 'Responsável (ID)'], [30, 35, 24, 12, 14, 18, 22, 24, 40]);
+  const summary = sheet('Consolidado', ['UBS', 'Equipe', 'Situação mensal', 'Revisão', 'Registros', 'Sem validação', 'Ausência declarada', 'Fechado em (UTC)', 'Responsável (ID)', ...(report.nominal ? ['Justificativa restrita'] : [])], [30, 35, 24, 12, 14, 18, 22, 24, 40, ...(report.nominal ? [45] : [])]);
   for (const t of report.teams) {
-    const row = summary.addRow([epiExcelText(t.unitName), epiExcelText(t.teamName), t.status === 'CLOSED' ? 'Fechado' : 'Em preenchimento', t.revision || 'Não informado', t.total, t.pending, t.noActivity ? 'Sim, justificada' : t.total ? 'Não' : 'Não declarada', t.closedAt ? new Date(t.closedAt) : 'Não informado', t.closedBy ?? 'Não informado']);
+    const row = summary.addRow([epiExcelText(t.unitName), epiExcelText(t.teamName), t.status === 'CLOSED' ? 'Fechado' : 'Em preenchimento', t.revision || 'Não informado', t.total, t.pending, t.noActivity ? 'Sim, justificada' : t.total ? 'Não' : 'Não declarada', t.closedAt ? new Date(t.closedAt) : 'Não informado', t.closedBy ?? 'Não informado', ...(report.nominal ? [epiExcelText(t.reason)] : [])]);
     row.getCell(8).numFmt = 'dd/mm/yyyy hh:mm';
   }
-  summary.addRow(['TOTAL DO RECORTE', '', '', '', report.total]);
+  summary.addRow(['TOTAL DO RECORTE', null, null, null, report.total]);
   if (report.nominal) {
     const records = sheet('Registros restritos', ['Identificador interno', 'Equipe', 'Situação do registro', 'Versão', ...definition.fields.map(f => f.label)], [40, 35, 27, 12, ...definition.fields.map(() => 35)]);
     for (const t of report.teams) for (const r of t.records ?? []) {
@@ -50,7 +50,7 @@ export async function epidemiologyWorkbook(report: EpiMonthReport) {
       if (n >= 10) {
         r.alignment = { vertical: 'middle', wrapText: true };
         let lines = 1;
-        r.eachCell((c, col) => { lines = Math.max(lines, Math.ceil(String(c.text).length / Math.max(12, (s.getColumn(col).width ?? 25) - 5))); });
+        r.eachCell((c, col) => { lines = Math.max(lines, String(c.text).split(/\r?\n/).reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / Math.max(12, (s.getColumn(col).width ?? 25) - 5))), 0)); });
         r.height = Math.min(409, Math.max(46, lines * 14 + 12));
       }
     });
