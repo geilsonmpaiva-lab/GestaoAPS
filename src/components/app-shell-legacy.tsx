@@ -22,6 +22,7 @@ const primary = [
 ];
 
 const domains = [
+  { href: "/vigilancia", label: "Vigilância Epidemiológica", icon: ShieldCheck },
   { href: "/qualidade", label: "Qualidade", icon: CheckCircle2 },
   { href: "/pessoas", label: "Pessoas", icon: Users2 },
   { href: "/patrimonio", label: "Patrimônio", icon: PackageSearch },

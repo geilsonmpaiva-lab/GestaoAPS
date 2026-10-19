@@ -19,6 +19,7 @@ const navigation = [
   { slug: "melhoria", label: "Melhoria contínua", icon: Sparkles },
   { slug: "reunioes", label: "Reuniões", icon: CalendarDays },
   { slug: "formularios-esf", label: "Formulários ESF", icon: ClipboardCheck },
+  { slug: "vigilancia", label: "Vigilância Epidemiológica", icon: ShieldCheck },
   { slug: "qualidade", label: "Qualidade", icon: CheckCircle2 },
   { slug: "pessoas", label: "Pessoas", icon: Users2 },
   { slug: "patrimonio", label: "Patrimônio", icon: PackageSearch },

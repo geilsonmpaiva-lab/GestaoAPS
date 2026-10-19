@@ -1,0 +1,17 @@
+import { beforeEach, expect, it, vi } from 'vitest';
+import { randomUUID } from 'node:crypto';
+const mocks = vi.hoisted(() => ({ actor: vi.fn(), workspace: vi.fn(), enabled: vi.fn(), rpc: vi.fn() }));
+vi.mock('@/lib/server/supabase', () => ({ requireActor: mocks.actor }));
+vi.mock('@/lib/server/workspace', () => ({ loadWorkspaceContext: mocks.workspace }));
+vi.mock('@/lib/server/epidemiology', () => ({ epidemiologyEnabled: mocks.enabled, epidemiologyRpc: mocks.rpc }));
+import { GET, POST } from './route';
+const body = () => ({ action: 'save', area: 'dengue', competency: '2028-01', teamId: randomUUID(), entityId: randomUUID(), expectedVersion: 0, operationId: randomUUID(), deviceId: randomUUID(), localTimestamp: new Date().toISOString(), synthetic: true, payload: { name: '[SINTÉTICO] Pessoa' } });
+const get = () => new Request('https://sgc.test/api/v1/epidemiology?area=dengue&month=2028-01');
+const post = (input: unknown = body(), origin = 'https://sgc.test') => new Request('https://sgc.test/api/v1/epidemiology', { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify(input) });
+beforeEach(() => { vi.clearAllMocks(); mocks.actor.mockResolvedValue({ id: 'actor' }); mocks.workspace.mockResolvedValue({ organizationId: 'org', unitId: 'unit' }); mocks.enabled.mockReturnValue(true); mocks.rpc.mockResolvedValue({ data: { records: [] }, error: null }); });
+it('requires authenticated reads and writes', async () => { mocks.actor.mockResolvedValue(null); expect((await GET(get())).status).toBe(401); expect((await POST(post())).status).toBe(401); expect(mocks.rpc).not.toHaveBeenCalled(); });
+it('blocks production and all non-synthetic environments before RPC', async () => { mocks.enabled.mockReturnValue(false); expect((await GET(get())).status).toBe(403); expect((await POST(post())).status).toBe(403); expect(mocks.rpc).not.toHaveBeenCalled(); });
+it('rejects cross-origin and tenant overrides', async () => { expect((await POST(post(body(), 'https://elsewhere.test'))).status).toBe(403); expect((await POST(post({ ...body(), organizationId: randomUUID() }))).status).toBe(422); expect(mocks.rpc).not.toHaveBeenCalled(); });
+it('returns authorized data without caches', async () => { const result = await GET(get()); expect(result.status).toBe(200); expect(result.headers.get('cache-control')).toContain('no-store'); expect(mocks.rpc).toHaveBeenCalledWith({ organizationId: 'org', unitId: 'unit' }, expect.objectContaining({ action: 'load', area: 'dengue', month: '2028-01', page: 1 })); });
+it('validates filters and malformed/oversized input', async () => { expect((await GET(new Request('https://sgc.test/api/v1/epidemiology?month=2028-99'))).status).toBe(422); expect((await POST(post({ ...body(), payload: { name: 'Real' } }))).status).toBe(422); expect((await POST(post('x'.repeat(17000)))).status).toBe(422); });
+it('preserves command conflict and denial status without caching', async () => { for (const [code, status] of [['42501', 403], ['PT409', 409], ['22023', 422]] as const) { mocks.rpc.mockResolvedValue({ error: { code } }); const response = await POST(post()); expect(response.status).toBe(status); expect(response.headers.get('cache-control')).toContain('no-store'); } });

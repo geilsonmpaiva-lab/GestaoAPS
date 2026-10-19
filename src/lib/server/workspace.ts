@@ -210,6 +210,10 @@ export async function loadWorkspaceContext(): Promise<WorkspaceContext> {
   // Only the synthetic Preview gets the paper-map sandbox; institutional flags remain untouched.
   if (!enabledModules.includes('formularios-esf') && process.env.SGC_ENVIRONMENT === 'staging' && process.env.VERCEL_ENV !== 'production' && scope.organizationId === '362db1a9-bfdd-4334-9436-46b1c0117eab' && scope.unitId && permissions.some(p => (p.domain === '*' || p.domain.startsWith('esf.')) && p.operations.includes('visualizar'))) enabledModules.push('formularios-esf');
   const userName = text(profile?.name) || auth.user.email || "Usuário";
+  if (process.env.SGC_ENVIRONMENT === 'staging' && process.env.VERCEL_ENV !== 'production' && scope.organizationId === '362db1a9-bfdd-4334-9436-46b1c0117eab' && scope.unitId) {
+    const access = await client.rpc('staging_epidemiology_v1', { p_request: { action: 'discover', organizationId: scope.organizationId, unitId: scope.unitId } });
+    if (!access.error && Array.isArray(access.data) && access.data.length) enabledModules.push('vigilancia');
+  }
   return {
     ...scope,
     uxV2: flagEnabled("ux_mvp_v2") || (process.env.VERCEL_ENV === "preview" && process.env.SGC_UX_V2 === "true"),
