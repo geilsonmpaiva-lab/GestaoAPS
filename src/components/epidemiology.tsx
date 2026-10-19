@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { epiAreas, epiStates, type EpiData, type EpiRecord, type EpiSummary } from '@/lib/epidemiology';
@@ -7,15 +7,17 @@ import { epiAreas, epiStates, type EpiData, type EpiRecord, type EpiSummary } fr
 type Filters = { area: string; month: string; team?: string; page: number; status?: string; record?: string };
 const actions: Record<string, string> = { submit: 'Enviar à UBS', review: 'Confirmar revisão da UBS', validate: 'Validar pela vigilância', close: 'Fechar registro', return: 'Devolver para correção', reopen: 'Reabrir com justificativa' };
 const historyLabels: Record<string, string> = { save: 'Gravação', submit: 'Envio à UBS', review: 'Revisão da UBS', validate: 'Validação técnica', close: 'Fechamento', return: 'Devolução', reopen: 'Reabertura' };
+const subscribeHydration = () => () => {};
 function Summary({ rows }: { rows: EpiSummary[] }) {
   const units = [...new Set(rows.map(r => r.unitId))];
   return <div className="epi-summary">{units.map(unitId => {
     const unit = rows.filter(r => r.unitId === unitId);
-    return <article className="v2-panel" key={unitId}><h3>{unit[0].unitName}</h3><p><strong>{unit.reduce((n, r) => n + r.total, 0)}</strong> registros no recorte autorizado</p>{unit.map(r => <div key={r.teamId} className="epi-summary-row"><strong>{r.teamName}</strong><span>{r.total ? `${r.total} registros · ${r.submitted} enviados · ${r.validated} validados · ${r.closed} fechados` : 'Sem registros — não significa zero casos'}</span></div>)}</article>;
+    return <article className="v2-panel" key={unitId}><h3>{unit[0].unitName}</h3><p><strong>{unit.reduce((n, r) => n + r.total, 0)}</strong> registros no recorte autorizado</p><details><summary>Detalhar equipes ({unit.length})</summary>{unit.map(r => <div key={r.teamId} className="epi-summary-row"><strong>{r.teamName}</strong><span>{r.total ? `${r.total} registros · ${r.submitted} enviados · ${r.validated} validados (inclui fechados) · ${r.closed} fechados` : 'Sem registros — não significa zero casos'}</span></div>)}</details></article>;
   })}{!rows.length && <p>Sem equipes autorizadas neste recorte.</p>}</div>;
 }
 export function Epidemiology({ initial, filters, areas }: { initial: EpiData; filters: Filters; areas: string[] }) {
   const router = useRouter();
+  const hydrated = useSyncExternalStore(subscribeHydration, () => true, () => false);
   const definition = epiAreas.find(a => a.id === filters.area)!;
   const [record, setRecord] = useState<EpiRecord | null>(initial.selected);
   const [values, setValues] = useState<Record<string, string | number>>(initial.selected?.payload ?? {});
@@ -23,10 +25,16 @@ export function Epidemiology({ initial, filters, areas }: { initial: EpiData; fi
   const [reason, setReason] = useState(''); const [busy, setBusy] = useState(false); const [dirty, setDirty] = useState(false);
   const [error, setError] = useState(''); const [message, setMessage] = useState('');
   const [pending, setPending] = useState<{ action: string; body: string } | null>(null);
+  useEffect(() => {
+    if (!dirty && !pending) return;
+    const guard = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', guard);
+    return () => window.removeEventListener('beforeunload', guard);
+  }, [dirty, pending]);
   const [entityId] = useState(() => initial.selected?.id ?? crypto.randomUUID());
   const [deviceId] = useState(() => crypto.randomUUID());
   const permissions = initial.teams.find(t => t.id === teamId)?.permissions ?? {};
-  const canEdit = permissions.save && (!record || record.status === 'DRAFT');
+  const canEdit = hydrated && permissions.save && (!record || record.status === 'DRAFT');
   const href = (change: Record<string, string | number | undefined>) => {
     const query = { ...filters, ...change };
     return '/vigilancia?' + new URLSearchParams(Object.entries(query).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])).toString();
@@ -43,7 +51,7 @@ export function Epidemiology({ initial, filters, areas }: { initial: EpiData; fi
       setRecord(result); setValues(result.payload); setDirty(false); setPending(null); setReason('');
       setMessage('Confirmado pelo servidor. Listas e consolidados serão atualizados.');
       router.replace(href({ record: result.id, team: teamId })); router.refresh();
-    } catch (e) { setError((e instanceof Error ? e.message : 'Falha de conexão.') + ' As edições permanecem nesta tela. Em falha de rede, tente o mesmo comando novamente.'); }
+    } catch (e) { setError((e instanceof TypeError ? 'Falha de conexão. Nenhum envio foi confirmado.' : e instanceof Error ? e.message : 'Não foi possível confirmar o envio.') + ' As edições permanecem nesta tela. Em falha de rede, tente o mesmo comando novamente.'); }
     finally { setBusy(false); }
   }
   const available = record ? [
@@ -60,7 +68,7 @@ export function Epidemiology({ initial, filters, areas }: { initial: EpiData; fi
       <label>Competência<input type="month" name="month" defaultValue={filters.month} required /></label>
       <label>Equipe<select name="team" defaultValue={filters.team ?? ''}><option value="">Todas as autorizadas</option>{initial.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
       <label>Situação<select name="status" defaultValue={filters.status ?? ''}><option value="">Todas</option>{Object.entries(epiStates).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select></label>
-      <button className="v2-primary" disabled={busy}>Aplicar filtros</button>
+      <button className="v2-button" disabled={busy}>Aplicar filtros</button>
     </form>
     <details className="v2-panel v2-section" open><summary>Dúvidas de interpretação · origem {definition.source}</summary><ul>{definition.pending.map(p => <li key={p}>{p}</li>)}</ul><p className="v2-muted">SINAN é texto e pode repetir. A competência organiza o relatório, sem substituir a data informada. Não há classificação clínica automática.</p></details>
     {error && <p role="alert" className="v2-alert">{error}</p>}{message && <p role="status">{message}</p>}
@@ -69,9 +77,9 @@ export function Epidemiology({ initial, filters, areas }: { initial: EpiData; fi
     <section className="v2-panel v2-section"><h2>{record ? 'Detalhe e acompanhamento' : 'Novo registro sintético'} · {definition.title}</h2>
       {!permissions.view ? <p>Acesso somente aos consolidados. Dados nominais e comandos indisponíveis.</p> : <form onSubmit={e => { e.preventDefault(); void command('save'); }} autoComplete="off">
         <p>{record ? `${epiStates[record.status]} · versão ${record.version}` : 'Rascunho não salvo'} · Modelo v1</p>
-        <label>Equipe responsável<select aria-label="Equipe responsável" value={teamId} disabled={!!record || dirty || busy || !!pending} onChange={e => setTeamId(e.target.value)}>{initial.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
+        <label>Equipe responsável<select aria-label="Equipe responsável" value={teamId} disabled={!hydrated || !!record || dirty || busy || !!pending} onChange={e => setTeamId(e.target.value)}>{initial.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
         <div className="epi-fields">{definition.fields.map(f => <label key={f.key}>{f.label}{f.type === 'select' ? <select name={`epi-${f.key}`} value={values[f.key] ?? ''} disabled={!canEdit || busy || !!pending} onChange={e => { const copy = { ...values }; if (e.target.value === '') delete copy[f.key]; else copy[f.key] = e.target.value; setValues(copy); setDirty(true); }}><option value="">Não informado</option>{f.options!.map(o => <option key={o}>{o}</option>)}</select> : <input autoComplete="off" name={`epi-${f.key}`} type={f.type === 'integer' ? 'number' : f.type === 'date' ? 'date' : 'text'} min={f.type === 'integer' ? 0 : undefined} max={f.type === 'integer' ? 1000000 : undefined} maxLength={f.type ? undefined : 1000} required={f.key === 'name'} placeholder={f.key === 'name' ? '[SINTÉTICO] Pessoa de teste' : undefined} value={values[f.key] ?? ''} disabled={!canEdit || busy || !!pending} onChange={e => { const copy = { ...values }; if (!e.target.value) delete copy[f.key]; else copy[f.key] = f.type === 'integer' ? Number(e.target.value) : e.target.value; setValues(copy); setDirty(true); }} />}</label>)}</div>
-        {canEdit && <button className="v2-primary" disabled={busy || !!pending && pending.action !== 'save'}>{busy ? 'Aguardando confirmação…' : pending?.action === 'save' ? 'Tentar novamente a mesma gravação' : 'Salvar rascunho'}</button>}
+        {canEdit && <button className="v2-button" disabled={busy || !!pending && pending.action !== 'save'}>{busy ? 'Aguardando confirmação…' : pending?.action === 'save' ? 'Tentar novamente a mesma gravação' : 'Salvar rascunho'}</button>}
         {(dirty || pending) && <p role="status">Edições apenas nesta tela. Não feche o navegador antes da confirmação.</p>}
         {dirty && !pending && <button type="button" className="v2-secondary" disabled={busy} onClick={() => { if (window.confirm('Descartar somente as edições desta tela? O registro salvo não será excluído.')) { setValues(record?.payload ?? {}); setDirty(false); setError(''); } }}>Descartar edições da tela</button>}
       </form>}

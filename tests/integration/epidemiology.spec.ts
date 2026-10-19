@@ -7,12 +7,13 @@ const month = '2028-04';
 const accounts = JSON.parse(readFileSync(process.env.SGC_STAGING_ACCOUNTS_FILE!, 'utf8')).accounts as { role: string; email: string; password: string }[];
 async function login(page: Page, role: string) {
   await applyStagingSso(page.context()); const account = accounts.find(a => a.role === role)!;
-  await page.goto('/login'); await page.getByLabel('E-mail', { exact: true }).fill(account.email); await page.getByLabel('Senha', { exact: true }).fill(account.password);
+  await page.goto('/login'); await page.waitForLoadState('networkidle'); await page.getByLabel('E-mail', { exact: true }).fill(account.email); await page.getByLabel('Senha', { exact: true }).fill(account.password);
   await page.getByRole('button', { name: 'Entrar', exact: true }).click(); await expect(page.getByRole('heading', { name: 'Prioridades da unidade' })).toBeVisible();
 }
 async function clickCommand(page: Page, name: string) {
   const pending = page.waitForResponse(r => new URL(r.url()).pathname === '/api/v1/epidemiology' && r.request().method() === 'POST');
-  await page.getByRole('button', { name, exact: true }).click(); const response = await pending; expect(response.status()).toBe(200); return await response.json();
+  await page.getByRole('button', { name, exact: true }).click(); const response = await pending; expect(response.status()).toBe(200);
+  const result = await response.json(); await expect(page.locator('form').filter({ has: page.locator('.epi-fields') })).toContainText(`versão ${result.version}`); return result;
 }
 test('epidemiology: nine forms, persisted data, explicit workflow, scopes and aggregated municipality', async ({ browser }) => {
   test.setTimeout(240000);
@@ -71,17 +72,22 @@ test('epidemiology: pagination, retry, conflict and network failure preserve edi
   const team = await page.getByLabel('Equipe responsável', { exact: true }).inputValue();
   const envelope = () => ({ action: 'save', area: 'dengue', competency: month, teamId: team, entityId: randomUUID(), expectedVersion: 0, operationId: randomUUID(), deviceId: randomUUID(), localTimestamp: new Date().toISOString(), synthetic: true, payload: { name: '[SINTÉTICO] Paginação', date: '2028-04-04', sinan: '00001' } });
   let latest = envelope();
-  for (let i = 0; i < 51; i++) { latest = envelope(); const response = await page.request.post('/api/v1/epidemiology', { data: latest }); expect(response.status()).toBe(200); }
+  for (let i = 0; i < 51; i += 5) {
+    const batch = Array.from({ length: Math.min(5, 51 - i) }, envelope); latest = batch[batch.length - 1];
+    await Promise.all(batch.map(async data => { const response = await page.request.post('/api/v1/epidemiology', { data }); expect(response.status()).toBe(200); }));
+  }
   const retry = await page.request.post('/api/v1/epidemiology', { data: latest }); expect(retry.status()).toBe(200); expect((await retry.json()).version).toBe(1);
   expect((await page.request.post('/api/v1/epidemiology', { data: { ...latest, operationId: randomUUID() } })).status()).toBe(409);
   await page.goto(`/vigilancia?area=dengue&month=${month}&team=${team}&page=2`);
   await expect(page.locator('.epi-records article')).toHaveCount(25);
   await page.locator('.epi-records article').first().getByRole('link', { name: 'Abrir acompanhamento', exact: true }).click();
-  await expect(page).toHaveURL(/page=2/);
+  await expect(page).toHaveURL(/record=/); await expect(page).toHaveURL(/page=2/);
+  await expect(page.getByLabel('Equipe responsável', { exact: true })).toBeDisabled();
+  await expect(page.locator('input[name="epi-address"]')).toBeEnabled();
   await page.locator('input[name="epi-address"]').fill('[SINTÉTICO] Edição mantida');
   await page.route('**/api/v1/epidemiology', route => route.abort());
   await page.getByRole('button', { name: 'Salvar rascunho', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('edições permanecem');
+  await expect(page.locator('p[role="alert"]')).toContainText('edições permanecem');
   await expect(page.locator('input[name="epi-address"]')).toHaveValue('[SINTÉTICO] Edição mantida');
   await page.unroute('**/api/v1/epidemiology');
   await clickCommand(page, 'Tentar novamente a mesma gravação');

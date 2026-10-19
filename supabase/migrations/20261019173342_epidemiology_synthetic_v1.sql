@@ -1,4 +1,5 @@
--- Synthetic sandbox only. No existing table, function, record or flag is changed.
+-- Synthetic sandbox only. Version matches the applied Supabase migration history.
+-- No existing table, function, record or flag is changed.
 create table app.epi_grants_v1 (
  id uuid primary key default gen_random_uuid(), user_id uuid not null references public.profiles(id),
  organization_id uuid not null check(organization_id='362db1a9-bfdd-4334-9436-46b1c0117eab'),
