@@ -23,7 +23,7 @@ async function productionAction(page: Page, label: string) {
   await page.getByRole('button', { name: label, exact: true }).click();
   expect((await response).status()).toBe(200);
 }
-test('APS V3: production, correction, manager review, closure, reports and reader isolation', async ({ browser }) => {
+test('APS V3: production, correction, manager review, closure, reports and reader isolation', async ({ browser }, testInfo) => {
   test.setTimeout(300000);
   const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext()]);
   const [writer, manager, reader] = await Promise.all(contexts.map(c => c.newPage()));
@@ -42,7 +42,7 @@ test('APS V3: production, correction, manager review, closure, reports and reade
     await writer.getByRole('link', { name: 'Registrar produção', exact: true }).click();
     await writer.goto(`/formularios-esf/producao?month=${month}&team=${teamA}&view=new`);
     await writer.getByLabel('Data da produção', { exact: true }).fill(`${month}-05`);
-    await writer.getByLabel('Procedimento / categoria', { exact: true }).selectOption('med-consulta');
+    await writer.getByRole('combobox', { name: 'Procedimento / categoria', exact: true }).selectOption('med-consulta');
     await writer.getByLabel('Quantidade', { exact: true }).fill('17');
     await writer.getByRole('button', { name: 'Registrar produção', exact: true }).click();
     await expect(writer.getByText('Salvo no sistema.', { exact: false })).toBeVisible();
@@ -63,13 +63,19 @@ test('APS V3: production, correction, manager review, closure, reports and reade
     await writer.getByRole('link', { name: 'Mapa e fechamento', exact: true }).click();
     await productionAction(writer, 'Enviar ao gerente');
     await manager.reload(); await productionAction(manager, 'Validar e fechar mapa');
-    await expect(manager.getByText('Fechado', { exact: false }).first()).toBeVisible();
+    await expect(manager.locator('.esf-monthly > p').filter({ hasText: / · Fechado · Revisão / })).toBeVisible();
     const workbookResponse = await manager.request.get(`/api/v1/esf/production/export?month=${month}&team=${teamA}`);
     expect(workbookResponse.status()).toBe(200);
     const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(await workbookResponse.body() as never);
-    expect(JSON.stringify(workbook.worksheets.map(sheet => sheet.getSheetValues()))).toContain('19');
+    const monthlySheet = workbook.getWorksheet('Produção mensal')!;
+    expect(monthlySheet.getCell('B6').value).toBe('Fechado');
+    const consultation = monthlySheet.getRows(10, 25)!.find(row => row.getCell(2).value === 'Consulta médica');
+    expect(consultation?.getCell(3).value).toBe(19);
     await manager.goto(`/formularios-esf/producao/impressao?month=${month}&team=${teamA}`);
-    await expect(manager.locator('body')).toContainText('19');
+    await expect(manager.locator('[data-paper-cell="Consulta médica:Mês"] text')).toHaveText('19');
+    await expect(manager.locator('[data-paper-cell="Consulta médica:TOTAL"] text')).toHaveText('19');
+    const pdf = await manager.pdf({ path: testInfo.outputPath('aps-v3-producao-preenchida.pdf'), preferCSSPageSize: true, printBackground: true });
+    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
 
     await login(reader, 'LEITOR', 'B');
     const forbidden = await reader.request.get(`/api/v1/esf/production?month=${month}&team=${teamA}`);
@@ -138,7 +144,7 @@ test('APS V3: medication item, map review, retry, persistence and filled/calcula
     const rejected = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/esf/maps' && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Salvar mapa', exact: true }).click();
     expect((await rejected).status()).toBe(500);
-    await expect(page.getByRole('alert')).toContainText('Falha sintética de homologação');
+    await expect(page.getByRole('alert').filter({ hasText: 'Falha sintética de homologação' })).toBeVisible();
     await expect(page.getByRole('heading', { name: itemName, exact: true })).toBeVisible();
     await expect(page.getByRole('status').filter({ hasText: /^Alterações não salvas$/ })).toBeVisible();
 
@@ -178,5 +184,112 @@ test('APS V3: medication item, map review, retry, persistence and filled/calcula
     const pdf = await print.pdf({ path: testInfo.outputPath('aps-v3-medicamentos-preenchido.pdf'), preferCSSPageSize: true, printBackground: true });
     expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
     expect(pdf.byteLength).toBeGreaterThan(1000);
+  } finally { await context.close(); }
+});
+
+test('APS V3: encrypted epidemiology draft survives page reload and requires PIN in the same context', async ({ browser }) => {
+  test.setTimeout(180000);
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const marker = `[SINTÉTICO] Rascunho APS ${Date.now()}`;
+  const blockedMutations: string[] = [];
+  const pin = '135790'; // Disposable synthetic PIN, never an account password.
+  try {
+    await login(page, 'GERENTE_UBS', 'A');
+    // Device registration/revalidation is part of the real vault workflow.
+    // Every other API mutation is blocked before reaching the shared database.
+    await context.route('**/api/v1/**', route => {
+      const request = route.request(), path = new URL(request.url()).pathname;
+      if (!['GET', 'HEAD'].includes(request.method()) && path !== '/api/v1/devices/register') {
+        blockedMutations.push(path); return route.abort('blockedbyclient');
+      }
+      return route.continue();
+    });
+    let month = '';
+    for (let n = 0; n < 20; n++) {
+      const candidate = `${2080 + Math.floor(Math.random() * 19)}-${String(1 + Math.floor(Math.random() * 12)).padStart(2, '0')}`;
+      const response = await page.request.get(`/api/v1/epidemiology?area=hanseniase&month=${candidate}&team=${teamA}`);
+      expect(response.status()).toBe(200);
+      if ((await response.json()).total === 0) { month = candidate; break; }
+    }
+    expect(month).toBeTruthy();
+    const formUrl = `/vigilancia?area=hanseniase&month=${month}&team=${teamA}&view=records&create=1`;
+    await page.goto(formUrl);
+    await expect(page.getByRole('heading', { name: 'Novo registro sintético · Hanseníase', exact: true })).toBeVisible();
+    await expect(page.getByRole('combobox', { name: 'Equipe responsável', exact: true })).toHaveValue(teamA);
+    await page.getByLabel('Nome sintético', { exact: true }).fill(marker);
+    await page.getByLabel('Data da notificação', { exact: true }).fill(`${month}-09`);
+    await page.getByLabel('SINAN — identificador informado (interpretação pendente)', { exact: true }).fill('000012345');
+    await page.getByLabel('Contatos — significado pendente', { exact: true }).fill('0');
+    const vault = page.locator('aside.v2-draft');
+    await vault.getByLabel('PIN do cofre (se estiver bloqueado)', { exact: true }).fill(pin);
+    await vault.getByRole('button', { name: 'Salvar no dispositivo', exact: true }).click();
+    await expect(vault.getByRole('status')).toContainText('Salvo neste dispositivo. O servidor ainda não recebeu esta cópia.');
+
+    const cipher = await page.evaluate(async ({ marker, team, month }) => {
+      type Cipher = { id: string; iv: string; value: string; updatedAt: number };
+      return new Promise<{ count: number; scoped: boolean; encryptedShape: boolean; plaintextPresent: boolean; queued: number }>((resolve, reject) => {
+        const open = indexedDB.open('sgc-ubs-offline');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result, transaction = db.transaction(['records', 'queue'], 'readonly');
+          const records = transaction.objectStore('records').getAll(), queue = transaction.objectStore('queue').count();
+          transaction.onabort = () => { db.close(); reject(transaction.error); };
+          transaction.oncomplete = () => {
+            const rows = (records.result as Cipher[]).filter(row => row.id.startsWith('draft:'));
+            const raw = JSON.stringify(records.result);
+            const result = {
+              count: rows.length, scoped: rows.every(row => row.id.endsWith(`:vigilancia:hanseniase:${team}:${month}:new`)),
+              encryptedShape: rows.every(row => /^[A-Za-z0-9+/]{16}$/.test(row.iv) && typeof row.value === 'string' && row.value.length > 100 && Object.keys(row).sort().join(',') === 'id,iv,updatedAt,value'),
+              plaintextPresent: raw.includes(marker) || raw.includes('000012345'), queued: queue.result,
+            };
+            db.close(); resolve(result);
+          };
+        };
+      });
+    }, { marker, team: teamA, month });
+    expect(cipher).toEqual({ count: 1, scoped: true, encryptedShape: true, plaintextPresent: false, queued: 0 });
+
+    // A real page reload drops the in-memory key and React values. Network stays online:
+    // this verifies draft durability, not offline navigation or synchronization.
+    page.once('dialog', dialog => dialog.accept());
+    await page.reload();
+    await expect(page.getByLabel('Nome sintético', { exact: true })).toHaveValue('');
+    await expect(page.getByLabel('Contatos — significado pendente', { exact: true })).toHaveValue('');
+    await expect(vault.getByLabel('PIN do cofre (se estiver bloqueado)', { exact: true })).toHaveValue('');
+    await vault.getByLabel('PIN do cofre (se estiver bloqueado)', { exact: true }).fill('111111');
+    await vault.getByRole('button', { name: 'Recuperar rascunho', exact: true }).click();
+    await expect(vault.getByRole('status')).toContainText('PIN incorreto. Seus dados locais foram preservados.');
+    await expect(page.getByLabel('Nome sintético', { exact: true })).toHaveValue('');
+    await vault.getByLabel('PIN do cofre (se estiver bloqueado)', { exact: true }).fill(pin);
+    await vault.getByRole('button', { name: 'Recuperar rascunho', exact: true }).click();
+    await expect(vault.getByRole('status')).toContainText('Cópia local recuperada. Revise os dados antes de enviar.');
+    await expect(page.getByLabel('Nome sintético', { exact: true })).toHaveValue(marker);
+    await expect(page.getByLabel('Data da notificação', { exact: true })).toHaveValue(`${month}-09`);
+    await expect(page.getByLabel('SINAN — identificador informado (interpretação pendente)', { exact: true })).toHaveValue('000012345');
+    await expect(page.getByLabel('Contatos — significado pendente', { exact: true })).toHaveValue('0');
+    await expect(page.getByRole('combobox', { name: 'Equipe responsável', exact: true })).toHaveValue(teamA);
+    await expect(page.getByRole('form', { name: 'Filtros epidemiológicos' }).getByLabel('Competência', { exact: true })).toHaveValue(month);
+    expect(new URL(page.url()).searchParams.has('record')).toBe(false);
+    expect(page.url()).not.toContain(encodeURIComponent(marker));
+
+    // Clearing only the displayed copy must not delete the encrypted draft.
+    page.once('dialog', dialog => dialog.accept());
+    await page.getByRole('button', { name: 'Descartar edições da tela', exact: true }).click();
+    const otherMonth = `${month.slice(0, 4)}-${month.endsWith('-12') ? '01' : String(Number(month.slice(5)) + 1).padStart(2, '0')}`;
+    await page.goto(formUrl.replace(`month=${month}`, `month=${otherMonth}`));
+    await vault.getByLabel('PIN do cofre (se estiver bloqueado)', { exact: true }).fill(pin);
+    await vault.getByRole('button', { name: 'Recuperar rascunho', exact: true }).click();
+    await expect(vault.getByRole('status')).toContainText('Nenhuma cópia local encontrada para este formulário.');
+    await expect(page.getByLabel('Nome sintético', { exact: true })).toHaveValue('');
+    await page.goto(formUrl);
+    await vault.getByLabel('PIN do cofre (se estiver bloqueado)', { exact: true }).fill(pin);
+    await vault.getByRole('button', { name: 'Recuperar rascunho', exact: true }).click();
+    await expect(vault.getByRole('status')).toContainText('Cópia local recuperada.');
+    await expect(page.getByLabel('Nome sintético', { exact: true })).toHaveValue(marker);
+    expect(blockedMutations).toEqual([]);
+    const unchanged = await page.request.get(`/api/v1/epidemiology?area=hanseniase&month=${month}&team=${teamA}`);
+    expect(unchanged.status()).toBe(200);
+    expect((await unchanged.json()).total).toBe(0);
   } finally { await context.close(); }
 });

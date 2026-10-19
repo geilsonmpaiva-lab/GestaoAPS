@@ -34,3 +34,33 @@ A migration de preparação sintética cria uma RPC adicional; sua aplicação n
 5. Preview, regressão multiusuário/multiUBS, sessão observada e validação física antes de promoção institucional.
 
 O estado de execução e as evidências serão registrados após cada rodada. Testes sintéticos e emulação não substituem aceite observado, leitor de tela ou aparelhos físicos. Nenhuma publicação de produção está autorizada nesta entrega.
+
+## Evidências — rodada de 19/10/2026
+
+- Lint e TypeScript aprovados; 378 testes unitários aprovados, mais o novo cenário de paginação de 53 entregas aprovado em execução focal.
+- Regressão V2: 96/96 jornadas em Chromium desktop/mobile e WebKit mobile. Reforma V3: 8/8 jornadas desktop/mobile.
+- CI [39312463122](https://github.com/geilsonmpaiva-lab/GestaoAPS/actions/runs/39312463122): aplicação e banco aprovados, incluindo migrations em banco limpo e atualização a partir da 024, com pgTAP.
+- Migrations aditivas aplicadas: `20261019194113_aps_access_lifecycle_v1` e `20261019194119_aps_synthetic_setup_v1`. Preparação invocada com JWT do administrador sintético: apenas três flags novas na organização sintética. Nenhum vínculo anterior foi encerrado.
+- Comparação antes/depois: mesmas definições/grants das 298 funções anteriores; mesmos hashes de 4 vínculos, 5 perfis, 562 acompanhamentos epidemiológicos, 59 mapas ESF anteriores e 5 flags anteriores.
+- Advisors de segurança sem novos achados. Permanecem avisos anteriores de funções definer expostas, extensão em public, proteção de senhas e MFA; tabelas ESF acessadas por RPC continuam com bloqueio direto por RLS. Esses avisos não foram resolvidos por esta reforma.
+- Jornada integrada V3 de medicamentos aprovada: novo mapa sintético, item/conferência, falha antes da gravação, retry idempotente, salvamento, reload e PDF fiel. Cálculos conferidos: entradas 15, saídas 12, saldo 103 e demanda 13; autorização de 40 não contabilizada como entrada.
+- Jornada integrada de produção aprovada: lançamento 17 → envio → devolução pelo gerente → correção para 19 → reenvio → fechamento. Leitor da UBS B bloqueado ao consultar equipe da UBS A; APIs de capacidades e tarefas sem vazamento do identificador da equipe A.
+- Rascunho de Vigilância aprovado após reload: envelope cifrado no IndexedDB, sem nome/SINAN em texto aberto, PIN incorreto rejeitado, PIN correto recupera valores e zero; outra competência não recupera a cópia. Nenhum acompanhamento epidemiológico foi criado por esse teste. Não simula reinício completo do navegador nem perda de rede.
+- Inspeção visual do Preview confirmou login, nova navegação, contexto da UBS e início autenticado. O endereço estável apresentou sessão anterior incompatível com a organização sintética; o endereço isolado do deploy permitiu o acesso sintético, sem remover cookies ou reduzir proteções.
+
+### Ainda não concluído
+
+- Repetição final integrada: 3/3 jornadas aprovadas (1,4 minuto), incluindo células exatas da produção em PDF/Excel, mapa de medicamentos e rascunho cifrado. PDF de produção e medicamentos gerados como artefatos locais de teste.
+
+### Ordem preservada para a próxima entrega
+
+A etapa 3 não está concluída. A auditoria identificou que os casos canônicos atuais são vinculados a uma competência; acrescentar campos visuais não resolve acompanhamento longitudinal. Também não há equivalência institucional aprovada para SINAN → número de notificação, contatos → contatos examinados e tipo informado → classificação operacional. Não serão inferidas essas equivalências, nem copiados históricos por mês. A extensão precisa de acompanhamentos históricos e projeção documental explícita antes de declarar entrada única completa. A etapa 4 depende desse contrato, além das validações offline abaixo.
+
+### Pendências de aceite
+
+- Equivalência completa entre campos canônicos de Vigilância e documentos ESF; não unir históricos ou declarar relatórios equivalentes sem esse mapeamento.
+- Fila e navegação autenticada offline completas dos novos acompanhamentos, incluindo anexos e recuperação após reinício sem rede. Rascunho cifrado isolado não comprova essa entrega.
+- Política institucional de acúmulo/autoaprovação excepcional e concessão nominal pela autoridade designada; esta entrega não altera permissões antigas automaticamente.
+- Aceite observado com profissionais, leitor de tela e instalação/persistência em aparelhos físicos.
+
+Um erro técnico da consulta à Vercel expôs o token local no retorno da ferramenta. A consulta foi abandonada e a verificação continuou pelo navegador autenticado; é necessária a revogação/rotação desse token. Credenciais não foram adicionadas ao repositório.
