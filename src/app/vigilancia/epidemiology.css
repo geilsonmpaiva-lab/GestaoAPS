@@ -14,3 +14,20 @@
 .epi-page .dialog-actions>*{max-width:100%;white-space:normal}
 .epi-monthly details{margin:1rem 0}.epi-monthly textarea{width:100%;min-height:80px;padding:12px;border:1px solid #9bafa6;border-radius:8px;box-sizing:border-box;font:inherit}.epi-page .epi-checkbox{display:flex;align-items:flex-start;margin:1rem 0}.epi-page .epi-checkbox input{width:24px;min-height:24px;flex-shrink:0}.epi-monthly button{margin-top:1rem}
 @media(max-width:600px){.epi-fields,.epi-filters{grid-template-columns:minmax(0,1fr)}}
+.epi-page-v3 .epi-view-nav{display:flex;flex-wrap:wrap;gap:.35rem;border-bottom:1px solid var(--border,#dbe4e1);margin:1.5rem 0}
+.epi-page-v3 .epi-view-nav a{padding:.85rem 1rem;border-bottom:3px solid transparent;color:var(--v2-muted,#52645f);font-weight:600;text-decoration:none;min-height:44px;box-sizing:border-box}
+.epi-page-v3 .epi-view-nav a[aria-current=page]{color:var(--v2-primary,#17695f);border-color:currentColor;background:var(--v2-surface,#f3f8f6);border-radius:8px 8px 0 0}
+.epi-page-v3 .epi-view-nav a:focus-visible{outline:3px solid var(--v2-primary,#17695f);outline-offset:3px}
+.epi-page-v3 .epi-model-notes{margin-top:1rem;padding:1rem;font-size:.875rem}
+.epi-page-v3 .epi-model-notes summary{cursor:pointer;font-weight:600}
+.epi-page-v3 .epi-list-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1rem}
+.epi-page-v3 .epi-list-heading h2{margin-top:0}
+.epi-page-v3 .epi-list-heading .v2-button{flex-shrink:0}
+.epi-page-v3 .epi-editor .v2-back{display:inline-flex;margin-bottom:1rem}
+.epi-page-v3 .epi-records article{padding:1.25rem;border:1px solid var(--border,#dbe4e1);border-radius:12px;gap:.5rem}
+.epi-page-v3 .epi-records article h3,.epi-page-v3 .epi-records article p{margin:0}
+.epi-page-v3 .epi-records article .v2-secondary{margin-top:.5rem;align-self:flex-start}
+.epi-draft-comparison{padding:1rem;margin:1rem 0;border:1px solid var(--border,#dbe4e1);border-radius:12px}
+.epi-draft-columns{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:1rem;margin-bottom:1rem}
+.epi-draft-columns h4{margin:0 0 .5rem}.epi-draft-columns p{margin:.35rem 0}
+@media(max-width:600px){.epi-page-v3 .epi-view-nav{gap:0}.epi-page-v3 .epi-view-nav a{padding:.75rem .6rem;flex:1;text-align:center;font-size:.875rem}.epi-page-v3 .epi-list-heading{flex-direction:column}.epi-page-v3 .epi-list-heading .v2-button{width:100%;text-align:center}}

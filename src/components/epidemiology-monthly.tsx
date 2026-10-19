@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { epiCoverage, type EpiMonthReport } from '@/lib/epidemiology-monthly';
 import type { EpiTeam } from '@/lib/epidemiology';
 
-export function EpidemiologyMonthly({ report, area, month, teams, blocked, municipal, initialTeam }: { report?: EpiMonthReport; area: string; month: string; teams: EpiTeam[]; blocked: boolean; municipal: boolean; initialTeam?: string }) {
+export function EpidemiologyMonthly({ report, area, month, teams, blocked, municipal, initialTeam, onPendingChange, onTeamChange }: { report?: EpiMonthReport; area: string; month: string; teams: EpiTeam[]; blocked: boolean; municipal: boolean; initialTeam?: string; onPendingChange?: (pending: boolean) => void; onTeamChange?: (team: string) => void }) {
   const router = useRouter();
   const [selected, setSelected] = useState(teams.find(t => t.id === initialTeam)?.id ?? teams[0]?.id ?? '');
   const [reason, setReason] = useState(''); const [noActivity, setNoActivity] = useState(false);
@@ -13,6 +13,10 @@ export function EpidemiologyMonthly({ report, area, month, teams, blocked, munic
   const [navigating, startNavigation] = useTransition();
   const [sending, setBusy] = useState(false); const [error, setError] = useState(''); const [message, setMessage] = useState('');
   const busy = sending || navigating;
+  useEffect(() => {
+    onPendingChange?.(!!pending || busy || reason.length > 0 || noActivity);
+    return () => onPendingChange?.(false);
+  }, [onPendingChange, pending, busy, reason, noActivity]);
   useEffect(() => {
     if (!pending) return;
     const guard = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
@@ -44,7 +48,7 @@ export function EpidemiologyMonthly({ report, area, month, teams, blocked, munic
     <details><summary>Relatório consolidado da UBS (sem nomes)</summary>{links('unit')}</details>
     {municipal && <details><summary>Relatório consolidado municipal (sem nomes)</summary>{links('municipal')}</details>}
     {row && <>
-      <label>Equipe do fechamento<select aria-label="Equipe do fechamento" value={selected} disabled={busy || !!pending} onChange={e => { setSelected(e.target.value); setReason(''); setNoActivity(false); setError(''); setMessage(''); }}>{report.teams.map(t => <option key={t.teamId} value={t.teamId}>{t.teamName}</option>)}</select></label>
+      <label>Equipe do fechamento<select aria-label="Equipe do fechamento" value={selected} disabled={busy || blocked || !!pending || !!onTeamChange && (!!reason || noActivity)} onChange={e => { if (onTeamChange) { onTeamChange(e.target.value); return; } setSelected(e.target.value); setReason(''); setNoActivity(false); setError(''); setMessage(''); }}>{report.teams.map(t => <option key={t.teamId} value={t.teamId}>{t.teamName}</option>)}</select></label>
       <p><strong>{row.currentStatus === 'CLOSED' ? 'Competência fechada' : 'Em preenchimento'}</strong> · versão {row.version} · última revisão {row.revision || 'nenhuma'} · {row.total} registros · {row.pending} sem validação</p>
       {row.currentStatus === 'CLOSED' && <p>Alterações, novos registros e reabertura de registros estão bloqueados até reabertura mensal autorizada.</p>}
       <details><summary>Relatórios da equipe {nominal ? '(consolidado ou nominal restrito)' : '(somente consolidado)'}</summary><p>Consolidado sem nomes</p>{links('team')}{nominal && <><p>Nominal restrito — consulta e exportação auditadas</p>{links('team', true)}</>}</details>

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "./aps-v3.css";
 import { PwaRegister } from "@/components/pwa-register";
 import { WebMcpTools } from "@/components/webmcp-tools";
 

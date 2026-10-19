@@ -3,9 +3,13 @@ import { Activity, ArrowRight, CalendarClock, CheckCircle2, ClipboardCheck, Shie
 import { AppShell } from "@/components/app-shell";
 import DashboardLegacy from "@/components/dashboard-legacy";
 import { loadDashboardV2, loadWorkspaceContext } from "@/lib/server/workspace";
+import { ApsHome } from '@/components/aps-home';
+
+export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
   const workspace = await loadWorkspaceContext();
+  if (workspace.uxV3) return <AppShell workspace={workspace}><ApsHome workspace={workspace} /></AppShell>;
   if (!workspace.uxV2) return <DashboardLegacy />;
   const dashboard = await loadDashboardV2(workspace);
   const cards = [

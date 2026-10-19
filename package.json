@@ -31,7 +31,8 @@
     "staging:provision": "node scripts/provision-staging.mjs",
     "test:staging:config": "node --test tests/staging-config.test.mjs",
     "staging:verify": "node scripts/verify-staging.mjs",
-    "test:staging:ui": "playwright test -c playwright.staging.config.ts"
+    "test:staging:ui": "playwright test -c playwright.staging.config.ts",
+    "test:aps": "playwright test -c playwright.aps.config.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",

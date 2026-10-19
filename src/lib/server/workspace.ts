@@ -3,12 +3,16 @@ import { modules } from "@/lib/modules";
 import { createSupabaseServerClient, isDemoMode } from "@/lib/server/supabase";
 import { cookies } from "next/headers";
 import { modulePagination, scopePermissions, selectAuthorizedScope } from "@/lib/domain/workspace-policy";
+import { apsV3Enabled } from '@/lib/aps-policy';
+import { responsibilityLabels, type AdminRole } from '@/lib/domain/admin-registration';
 
 export type WorkspaceScope = { organizationId: string; organizationName: string; unitId: string | null; unitName: string };
 export const scopeCookie = "sgc-workspace-scope";
 
 export type WorkspaceContext = {
   uxV2: boolean;
+  uxV3?: boolean;
+  responsibilities?: string[];
   enabledModules: string[];
   userId: string;
   scopes: WorkspaceScope[];
@@ -24,6 +28,7 @@ export type WorkspaceContext = {
 
 const demoContext: WorkspaceContext = {
   uxV2: true,
+  responsibilities: ['Gerência da UBS'],
   enabledModules: ["conhecimento", "protocolos", "indicadores", "melhoria", "reunioes", "administracao", "formularios-esf"],
   userId: "00000000-0000-4000-8000-000000000001",
   scopes: [],
@@ -173,7 +178,7 @@ export async function loadModuleDefinitionV2(slug: string, workspace: WorkspaceC
 }
 
 export async function loadWorkspaceContext(): Promise<WorkspaceContext> {
-  if (isDemoMode()) return { ...demoContext, uxV2: process.env.SGC_UX_V2 !== "false", scopes: [{ organizationId: demoContext.organizationId, organizationName: demoContext.organizationName, unitId: demoContext.unitId, unitName: demoContext.unitName }] };
+  if (isDemoMode()) return { ...demoContext, uxV3: apsV3Enabled({ demo: true, organizationId: demoContext.organizationId, vercelEnvironment: process.env.VERCEL_ENV, override: process.env.SGC_UX_APS_V3 }), uxV2: process.env.SGC_UX_V2 !== "false", scopes: [{ organizationId: demoContext.organizationId, organizationName: demoContext.organizationName, unitId: demoContext.unitId, unitName: demoContext.unitName }] };
   const client = await createSupabaseServerClient();
   const { data: auth } = await client.auth.getUser();
   if (!auth.user) throw new Error("Sessão não autenticada.");
@@ -210,18 +215,21 @@ export async function loadWorkspaceContext(): Promise<WorkspaceContext> {
   // Only the synthetic Preview gets the paper-map sandbox; institutional flags remain untouched.
   if (!enabledModules.includes('formularios-esf') && process.env.SGC_ENVIRONMENT === 'staging' && process.env.VERCEL_ENV !== 'production' && scope.organizationId === '362db1a9-bfdd-4334-9436-46b1c0117eab' && scope.unitId && permissions.some(p => (p.domain === '*' || p.domain.startsWith('esf.')) && p.operations.includes('visualizar'))) enabledModules.push('formularios-esf');
   const userName = text(profile?.name) || auth.user.email || "Usuário";
-  if (process.env.SGC_ENVIRONMENT === 'staging' && process.env.VERCEL_ENV !== 'production' && scope.organizationId === '362db1a9-bfdd-4334-9436-46b1c0117eab' && scope.unitId) {
-    const access = await client.rpc('staging_epidemiology_v1', { p_request: { action: 'discover', organizationId: scope.organizationId, unitId: scope.unitId } });
-    if (!access.error && Array.isArray(access.data) && access.data.length) enabledModules.push('vigilancia');
+  const epidemiologyUnits = scope.unitId ? [scope.unitId] : scopes.filter(s => s.organizationId === scope.organizationId && s.unitId).map(s => s.unitId!);
+  if (process.env.SGC_ENVIRONMENT === 'staging' && process.env.VERCEL_ENV !== 'production' && scope.organizationId === '362db1a9-bfdd-4334-9436-46b1c0117eab') {
+    const discoveries = await Promise.all(epidemiologyUnits.map(unitId => client.rpc('staging_epidemiology_v1', { p_request: { action: 'discover', organizationId: scope.organizationId, unitId } })));
+    if (discoveries.some(access => !access.error && Array.isArray(access.data) && access.data.length)) enabledModules.push('vigilancia');
   }
   return {
     ...scope,
+    uxV3: apsV3Enabled({ demo: false, environment: process.env.SGC_ENVIRONMENT, vercelEnvironment: process.env.VERCEL_ENV, organizationId: scope.organizationId, enabled: flagEnabled('ux_aps_v3'), override: process.env.SGC_UX_APS_V3 }),
     uxV2: flagEnabled("ux_mvp_v2") || (process.env.VERCEL_ENV === "preview" && process.env.SGC_UX_V2 === "true"),
     enabledModules,
     userId: auth.user.id,
     scopes,
     permissions,
     userName,
+    responsibilities: [...new Set(memberships.filter(m => m.organization_id === scope.organizationId && (m.unit_id === null || m.unit_id === scope.unitId)).map(m => responsibilityLabels[m.role as AdminRole] ?? 'Acesso personalizado'))],
     userInitials: initials(userName),
     environmentLabel: process.env.SGC_ENVIRONMENT === "staging" ? "Homologação — dados sintéticos" : "Ambiente integrado",
   };
