@@ -12,4 +12,5 @@
 .epi-page :is(input,select){width:100%;max-width:100%;min-width:0;min-height:44px;box-sizing:border-box;padding:10px 12px;border:1px solid #9bafa6;border-radius:8px;background:white;color:var(--v2-ink,#1e3832);font-size:16px}
 .epi-page .dialog-actions{flex-wrap:wrap;justify-content:flex-start}
 .epi-page .dialog-actions>*{max-width:100%;white-space:normal}
+.epi-monthly details{margin:1rem 0}.epi-monthly textarea{width:100%;min-height:80px;padding:12px;border:1px solid #9bafa6;border-radius:8px;box-sizing:border-box;font:inherit}.epi-page .epi-checkbox{display:flex;align-items:flex-start;margin:1rem 0}.epi-page .epi-checkbox input{width:24px;min-height:24px;flex-shrink:0}.epi-monthly button{margin-top:1rem}
 @media(max-width:600px){.epi-fields,.epi-filters{grid-template-columns:minmax(0,1fr)}}

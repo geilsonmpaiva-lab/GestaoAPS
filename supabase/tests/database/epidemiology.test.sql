@@ -78,6 +78,66 @@ select ok(not has_function_privilege('anon','public.staging_epidemiology_v1(json
 select is((select count(*)::int from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='app' and c.relname in ('epi_grants_v1','epi_cases_v1','epi_events_v1','epi_receipts_v1') and c.relrowsecurity),4,'all epidemiology tables have RLS');
 select ok(exists(select 1 from app.epi_events_v1 where action='close' and snapshot->>'status'='CLOSED'),'closed snapshot preserved after reopening');
 select throws_ok($$update app.epi_events_v1 set reason='overwrite'$$,null,null,'audit log append only');
+-- Monthly revisions use a fresh synthetic period and remain entirely rollback-only.
+create function pg_temp.epi_month_req(a text default 'close') returns jsonb language sql as $$ select jsonb_build_object(
+ 'organizationId','362db1a9-bfdd-4334-9436-46b1c0117eab','unitId','94900000-0000-4000-8000-000000000011','team','94900000-0000-4000-8000-000000000021',
+ 'area','hanseniase','month','2028-02','action',a,'operationId',gen_random_uuid(),'expectedVersion',0,'synthetic',true,
+ 'deviceId',gen_random_uuid(),'localTimestamp',now(),'reason','Fechamento sintético mensal'); $$;
+insert into epi_requests values('monthly',pg_temp.epi_month_req());
+select set_config('request.jwt.claim.sub','94900000-0000-4000-8000-000000000001',true);
+set local role authenticated;
+select throws_ok($$select public.staging_epidemiology_monthly_v1(req) from epi_requests where key='monthly'$$,'42501',null,'writer cannot close monthly without explicit close grant');
+select throws_ok($$select * from app.epi_month_snapshots_v1$$,'42501',null,'monthly nominal snapshots are not directly readable');
+select set_config('request.jwt.claim.sub','94900000-0000-4000-8000-000000000002',true);
+select throws_ok($$select public.staging_epidemiology_monthly_v1(req) from epi_requests where key='monthly'$$,'22023',null,'empty month is not automatically zero activity');
+select is((public.staging_epidemiology_monthly_v1(pg_temp.epi_month_req('load')||'{"scope":"team"}')->'teams'->0->>'noActivity'),'false','no records remains undeclared');
+reset role;
+insert into app.epi_cases_v1(id,organization_id,unit_id,team_id,area,competency,status,payload,created_by,updated_by)
+select gen_random_uuid(),'362db1a9-bfdd-4334-9436-46b1c0117eab','94900000-0000-4000-8000-000000000011','94900000-0000-4000-8000-000000000021','hanseniase','2028-02',
+ case when n=1 then 'DRAFT' else 'VALIDATED' end,jsonb_build_object('name','[SINTÉTICO] Mensal '||n,'date','2028-02-01','sinan','00001','contacts',0),
+ '94900000-0000-4000-8000-000000000002','94900000-0000-4000-8000-000000000002' from generate_series(1,51) n;
+set local role authenticated;
+select throws_ok($$select public.staging_epidemiology_monthly_v1(req) from epi_requests where key='monthly'$$,'22023',null,'monthly close requires technical validation of every record');
+reset role;
+update app.epi_cases_v1 set status='VALIDATED' where competency='2028-02';
+set local role authenticated;
+select is((select public.staging_epidemiology_monthly_v1(req)->>'revision' from epi_requests where key='monthly'),'1','first monthly revision closed');
+select is((select public.staging_epidemiology_monthly_v1(req)->>'version' from epi_requests where key='monthly'),'1','identical command replay does not create another revision');
+select is((public.staging_epidemiology_monthly_v1(pg_temp.epi_month_req('report')||'{"scope":"team","nominal":true}')->'teams'->0->'records')::text like '%00001%',true,'identifier zeros preserved in closed snapshot');
+select is(jsonb_array_length(public.staging_epidemiology_monthly_v1(pg_temp.epi_month_req('report')||'{"scope":"team","nominal":true}')->'teams'->0->'records'),51,'export snapshot includes all records, not paginated 25');
+select ok(not (public.staging_epidemiology_monthly_v1(pg_temp.epi_month_req('report')||'{"scope":"team"}')->'teams'->0 ? 'records'),'aggregate export excludes nominal payload');
+select throws_ok($$select public.staging_epidemiology_monthly_v1(pg_temp.epi_month_req('report')||'{"scope":"municipal","nominal":true}')$$,'22023',null,'municipal nominal export is prohibited');
+select throws_ok($$select public.staging_epidemiology_monthly_v1(pg_temp.epi_month_req('report')||'{"scope":"team","revision":999}')$$,'P0002',null,'unknown historical revision never falls back to live data');
+select throws_ok($$select public.staging_epidemiology_v1(pg_temp.epi_req()||'{"competency":"2028-02"}')$$,'22023',null,'old case RPC cannot insert into closed period');
+reset role;
+select throws_ok($$update app.epi_cases_v1 set payload=payload||'{"contacts":99}' where competency='2028-02'$$,'22023',null,'trigger also freezes direct updates to closed period');
+select throws_ok($$update app.epi_month_snapshots_v1 set snapshot='{}'$$,null,null,'closed monthly revisions are immutable');
+set local role authenticated;
+select throws_ok($$select public.staging_epidemiology_monthly_v1(pg_temp.epi_month_req('reopen')||'{"expectedVersion":0}')$$,'PT409',null,'stale monthly version conflicts');
+select throws_ok($$select public.staging_epidemiology_monthly_v1(pg_temp.epi_month_req('reopen')||'{"expectedVersion":1,"reason":""}')$$,'22023',null,'monthly reopening requires a reason');
+select is(public.staging_epidemiology_monthly_v1(pg_temp.epi_month_req('reopen')||'{"expectedVersion":1}')->>'status','OPEN','monthly reopen creates provisional state without replacing snapshot');
+select is(public.staging_epidemiology_monthly_v1(pg_temp.epi_month_req('report')||'{"scope":"team","revision":1}')->>'definitive','true','historical closed revision remains available after reopening');
+select is(public.staging_epidemiology_monthly_v1(pg_temp.epi_month_req('report')||'{"scope":"team"}')->>'definitive','false','current report is provisional after reopening');
+select lives_ok($$select public.staging_epidemiology_v1(pg_temp.epi_req()||'{"competency":"2028-02"}')$$,'reopened month allows new record through original RPC');
+reset role;
+update app.epi_cases_v1 set status='VALIDATED' where competency='2028-02';
+set local role authenticated;
+select is(public.staging_epidemiology_monthly_v1(pg_temp.epi_month_req()||'{"expectedVersion":2}')->>'revision','2','new close creates second revision');
+select is(public.staging_epidemiology_monthly_v1(pg_temp.epi_month_req('report')||'{"scope":"team","revision":1}')->>'total','51','previous revision count unchanged');
+select is(public.staging_epidemiology_monthly_v1(pg_temp.epi_month_req('report')||'{"scope":"team","revision":2}')->>'total','52','new revision includes new record exactly once');
+select lives_ok($$select public.staging_epidemiology_monthly_v1(pg_temp.epi_month_req()||'{"team":"94900000-0000-4000-8000-000000000022","noActivity":true}')$$,'empty month closes only with explicit justified declaration');
+select set_config('request.jwt.claim.sub','94900000-0000-4000-8000-000000000003',true);
+select throws_ok($$select public.staging_epidemiology_monthly_v1(pg_temp.epi_month_req('report')||'{"scope":"team"}')$$,'42501',null,'reader B cannot export A');
+select throws_ok($$select public.staging_epidemiology_monthly_v1(pg_temp.epi_month_req('report')||'{"scope":"team","nominal":true,"unitId":"94900000-0000-4000-8000-000000000012","team":"94900000-0000-4000-8000-000000000023"}')$$,'42501',null,'aggregate-only reader cannot request nominal export for own UBS');
+select throws_ok($$select public.staging_epidemiology_monthly_v1(pg_temp.epi_month_req('report')||'{"scope":"municipal"}')$$,'42501',null,'unit reader cannot request municipal export');
+reset role;
+select ok(not has_function_privilege('anon','public.staging_epidemiology_monthly_v1(jsonb)','execute'),'anonymous cannot invoke monthly RPC');
+select ok(exists(select 1 from app.epi_events_v1 where action='MONTH_EXPORT'),'exports are audited');
+update app.epi_grants_v1 set enabled=false where user_id='94900000-0000-4000-8000-000000000002';
+select set_config('request.jwt.claim.sub','94900000-0000-4000-8000-000000000002',true);
+set local role authenticated;
+select throws_ok($$select public.staging_epidemiology_monthly_v1(req) from epi_requests where key='monthly'$$,'42501',null,'monthly receipt cannot bypass revocation');
+reset role;
 update app.epi_grants_v1 set enabled=false where user_id='94900000-0000-4000-8000-000000000001';
 select set_config('request.jwt.claim.sub','94900000-0000-4000-8000-000000000001',true);
 set local role authenticated;

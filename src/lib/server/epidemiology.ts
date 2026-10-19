@@ -14,3 +14,8 @@ export async function epidemiologyRpc(workspace: WorkspaceContext, request: Reco
   const client = await createSupabaseServerClient();
   return client.rpc('staging_epidemiology_v1', { p_request: { ...request, organizationId: workspace.organizationId, unitId: workspace.unitId } });
 }
+export async function epidemiologyMonthlyRpc(workspace: WorkspaceContext, request: Record<string, unknown>) {
+  if (!epidemiologyEnabled(workspace)) throw new Error('Área restrita à homologação sintética.');
+  const client = await createSupabaseServerClient();
+  return client.rpc('staging_epidemiology_monthly_v1', { p_request: { ...request, organizationId: workspace.organizationId, unitId: workspace.unitId } });
+}

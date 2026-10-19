@@ -3,6 +3,8 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { epiAreas, epiStates, type EpiData, type EpiRecord, type EpiSummary } from '@/lib/epidemiology';
+import type { EpiMonthReport } from '@/lib/epidemiology-monthly';
+import { EpidemiologyMonthly } from './epidemiology-monthly';
 
 type Filters = { area: string; month: string; team?: string; page: number; status?: string; record?: string };
 const actions: Record<string, string> = { submit: 'Enviar à UBS', review: 'Confirmar revisão da UBS', validate: 'Validar pela vigilância', close: 'Fechar registro', return: 'Devolver para correção', reopen: 'Reabrir com justificativa' };
@@ -15,7 +17,7 @@ function Summary({ rows }: { rows: EpiSummary[] }) {
     return <article className="v2-panel" key={unitId}><h3>{unit[0].unitName}</h3><p><strong>{unit.reduce((n, r) => n + r.total, 0)}</strong> registros no recorte autorizado</p><details><summary>Detalhar equipes ({unit.length})</summary>{unit.map(r => <div key={r.teamId} className="epi-summary-row"><strong>{r.teamName}</strong><span>{r.total ? `${r.total} registros · ${r.submitted} enviados · ${r.validated} validados (inclui fechados) · ${r.closed} fechados` : 'Sem registros — não significa zero casos'}</span></div>)}</details></article>;
   })}{!rows.length && <p>Sem equipes autorizadas neste recorte.</p>}</div>;
 }
-export function Epidemiology({ initial, filters, areas }: { initial: EpiData; filters: Filters; areas: string[] }) {
+export function Epidemiology({ initial, filters, areas, monthly }: { initial: EpiData; filters: Filters; areas: string[]; monthly?: EpiMonthReport }) {
   const router = useRouter();
   const hydrated = useSyncExternalStore(subscribeHydration, () => true, () => false);
   const definition = epiAreas.find(a => a.id === filters.area)!;
@@ -34,7 +36,8 @@ export function Epidemiology({ initial, filters, areas }: { initial: EpiData; fi
   const [entityId] = useState(() => initial.selected?.id ?? crypto.randomUUID());
   const [deviceId] = useState(() => crypto.randomUUID());
   const permissions = initial.teams.find(t => t.id === teamId)?.permissions ?? {};
-  const canEdit = hydrated && permissions.save && (!record || record.status === 'DRAFT');
+  const monthClosed = monthly?.teams.find(t => t.teamId === teamId)?.currentStatus === 'CLOSED';
+  const canEdit = hydrated && permissions.save && !monthClosed && (!record || record.status === 'DRAFT');
   const href = (change: Record<string, string | number | undefined>) => {
     const query = { ...filters, ...change };
     return '/vigilancia?' + new URLSearchParams(Object.entries(query).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])).toString();
@@ -74,6 +77,7 @@ export function Epidemiology({ initial, filters, areas }: { initial: EpiData; fi
     {error && <p role="alert" className="v2-alert">{error}</p>}{message && <p role="status">{message}</p>}
     <section className="v2-section"><h2>Consolidado da UBS · {filters.month}</h2><p className="v2-muted">Registros únicos por identificador interno, incluindo rascunhos. Não representa incidência, casos confirmados ou fechamento mensal. Todos os estados aparecem separados. As dúvidas de classificação continuam válidas.</p><Summary rows={initial.unitSummary} /></section>
     {initial.municipal && <section className="v2-section"><h2>Consolidado municipal autorizado · {filters.month}</h2><p className="v2-muted">Equipe → UBS → município. Sem nomes ou causas. Abrange somente equipes às quais seu perfil tem acesso.</p><p>Total: <strong>{initial.municipalSummary.reduce((n, r) => n + r.total, 0)}</strong> registros</p><Summary rows={initial.municipalSummary} /></section>}
+    <EpidemiologyMonthly report={monthly} area={filters.area} month={filters.month} teams={initial.teams} blocked={!hydrated || busy || dirty || !!pending} municipal={initial.municipal} />
     <section className="v2-panel v2-section"><h2>{record ? 'Detalhe e acompanhamento' : 'Novo registro sintético'} · {definition.title}</h2>
       {!permissions.view ? <p>Acesso somente aos consolidados. Dados nominais e comandos indisponíveis.</p> : <form onSubmit={e => { e.preventDefault(); void command('save'); }} autoComplete="off">
         <p>{record ? `${epiStates[record.status]} · versão ${record.version}` : 'Rascunho não salvo'} · Modelo v1</p>
@@ -83,7 +87,8 @@ export function Epidemiology({ initial, filters, areas }: { initial: EpiData; fi
         {(dirty || pending) && <p role="status">Edições apenas nesta tela. Não feche o navegador antes da confirmação.</p>}
         {dirty && !pending && <button type="button" className="v2-secondary" disabled={busy} onClick={() => { if (window.confirm('Descartar somente as edições desta tela? O registro salvo não será excluído.')) { setValues(record?.payload ?? {}); setDirty(false); setError(''); } }}>Descartar edições da tela</button>}
       </form>}
-      {available.length > 0 && hydrated && <div className="v2-section"><label>Justificativa para devolução/reabertura<input maxLength={500} value={reason} disabled={busy || !!pending} onChange={e => setReason(e.target.value)} /></label><div className="dialog-actions">{available.map(action => <button type="button" key={action} className="v2-secondary" disabled={busy || dirty || !!pending && pending.action !== action || ['return', 'reopen'].includes(action) && reason.trim().length < 10} onClick={() => void command(action)}>{pending?.action === action ? 'Tentar novamente: ' : ''}{actions[action]}</button>)}</div></div>}
+      {monthClosed && <p className="v2-alert">Competência da equipe fechada. Solicite reabertura mensal antes de criar ou alterar registros.</p>}
+      {available.length > 0 && hydrated && !monthClosed && <div className="v2-section"><label>Justificativa para devolução/reabertura<input maxLength={500} value={reason} disabled={busy || !!pending} onChange={e => setReason(e.target.value)} /></label><div className="dialog-actions">{available.map(action => <button type="button" key={action} className="v2-secondary" disabled={busy || dirty || !!pending && pending.action !== action || ['return', 'reopen'].includes(action) && reason.trim().length < 10} onClick={() => void command(action)}>{pending?.action === action ? 'Tentar novamente: ' : ''}{actions[action]}</button>)}</div></div>}
       {record && <><p className="v2-muted">Atualizado em {new Date(record.updated_at).toLocaleString('pt-BR')}. Edições do acompanhamento mantêm o mesmo registro; não o recadastre mensalmente.</p><Link onClick={protect} className="v2-secondary" href={href({ record: undefined })}>Voltar / novo registro</Link><details><summary>Histórico auditado</summary><ul>{initial.history.map((entry, i) => <li key={i}>v{entry.version} · {historyLabels[entry.action] ?? entry.action} · {new Date(entry.created_at).toLocaleString('pt-BR')}{entry.reason ? ` · ${entry.reason}` : ''}</li>)}</ul></details></>}
     </section>
     <section className="v2-panel v2-section"><h2>Registros autorizados · {initial.total}</h2><p className="v2-muted">25 por página. Filtros e página são preservados ao abrir e voltar. Possíveis repetições de SINAN não são unidas automaticamente.</p>
