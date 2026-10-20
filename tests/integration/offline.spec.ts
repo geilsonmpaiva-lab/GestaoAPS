@@ -7,7 +7,7 @@ test.use({serviceWorkers:'allow'});
 const file=process.env.SGC_STAGING_ACCOUNTS_FILE;
 if(!file)throw new Error('Arquivo de contas sintéticas obrigatório.');
 const account=JSON.parse(readFileSync(file,'utf8')).accounts.find((a:{role:string})=>a.role==='GERENTE_UBS');
-async function login(page:Page){await applyStagingSso(page.context());await page.goto('/login');await page.getByLabel('E-mail',{exact:true}).fill(account.email);await page.getByLabel('Senha',{exact:true}).fill(account.password);await page.getByRole('button',{name:'Entrar',exact:true}).click();await expect(page.getByRole('heading',{name:'Prioridades da unidade'})).toBeVisible();}
+async function login(page:Page){await applyStagingSso(page.context());await page.goto('/login');await page.getByLabel('E-mail',{exact:true}).fill(account.email);await page.getByLabel('Senha',{exact:true}).fill(account.password);await page.getByRole('button',{name:'Entrar',exact:true}).click();await expect(page.getByRole('heading',{name:/^(Prioridades da unidade|Olá,)/})).toBeVisible();}
 
 test('reinício sem rede recupera rascunho cifrado e confirma fila somente online',async({},info)=>{
   test.setTimeout(240_000);
@@ -38,7 +38,7 @@ test('reinício sem rede recupera rascunho cifrado e confirma fila somente onlin
   await expect(page.getByText(marker,{exact:true})).toHaveCount(0);
   await page.getByLabel('PIN local',{exact:true}).fill('111111');
   await page.getByRole('button',{name:'Desbloquear cofre',exact:true}).click();
-  await expect(page.getByRole('status')).toContainText('PIN incorreto');
+  await expect(page.locator('.v2-alert[role="status"], [role="dialog"] .vault-message[role="status"]')).toContainText('PIN incorreto');
   await page.getByLabel('PIN local',{exact:true}).fill('135790');
   await page.getByRole('button',{name:'Desbloquear cofre',exact:true}).click();
   await expect(page.getByRole('textbox',{name:'Título',exact:true})).toHaveValue(marker);
@@ -61,12 +61,12 @@ test('reinício sem rede recupera rascunho cifrado e confirma fila somente onlin
   await page.clock.install({time:new Date()});
   await page.clock.fastForward(73*60*60*1000);
   await expect(page.getByRole('button',{name:'Desbloquear cofre',exact:true})).toBeVisible();
-  await expect(page.getByRole('status')).toContainText(/bloqueado|expirado/);
+  await expect(page.locator('.v2-alert[role="status"], [role="dialog"] .vault-message[role="status"]')).toContainText(/bloqueado|expirado/);
   await expect(page.getByRole('textbox',{name:'Título',exact:true})).toHaveCount(0);
   await context.close();
 });
 
-async function unlockFromHeader(page:Page){await page.getByRole('button',{name:'Sincronização',exact:true}).click();await page.getByLabel('PIN local de 6 a 12 dígitos').fill('135790');await page.getByRole('button',{name:'Desbloquear cofre',exact:true}).click();await expect(page.getByRole('status')).toContainText('Dispositivo protegido');await page.getByRole('button',{name:'Fechar',exact:true}).click();}
+async function unlockFromHeader(page:Page){await page.getByRole('button',{name:'Sincronização',exact:true}).click();await page.getByLabel('PIN local de 6 a 12 dígitos').fill('135790');await page.getByRole('button',{name:'Desbloquear cofre',exact:true}).click();await expect(page.locator('.v2-alert[role="status"], [role="dialog"] .vault-message[role="status"]')).toContainText('Dispositivo protegido');await page.getByRole('button',{name:'Fechar',exact:true}).click();}
 async function unlockWorkbench(page:Page){await page.getByLabel('PIN local',{exact:true}).fill('135790');await page.getByRole('button',{name:'Desbloquear cofre',exact:true}).click();await expect(page.getByRole('button',{name:'Sincronizar pendências'})).toBeVisible();}
 
 test('falha de armazenamento preserva formulário e logout remove o cofre privado',async({},info)=>{
@@ -92,7 +92,7 @@ test('falha de armazenamento preserva formulário e logout remove o cofre privad
   expect(await page.evaluate(async()=>(await indexedDB.databases()).some(db=>db.name==='sgc-ubs-offline'))).toBe(false);
   await page.goto('/offline');await page.getByLabel('PIN local',{exact:true}).fill('135790');
   await page.getByRole('button',{name:'Desbloquear cofre',exact:true}).click();
-  await expect(page.getByRole('status')).toContainText('Prepare o cofre online');
+  await expect(page.locator('.v2-alert[role="status"], [role="dialog"] .vault-message[role="status"]')).toContainText('Prepare o cofre online');
   await context.close();
 });
 
@@ -120,7 +120,7 @@ test('anexo interrompido retoma após reinício e conflito de ação preserva ve
   await expect(page.getByText(`offline-${suffix}.csv`,{exact:false})).toBeVisible();
   await context.setOffline(false);
   await page.route('**/storage/v1/object/upload/sign/**',route=>route.abort());
-  await page.getByRole('button',{name:'Sincronizar pendências'}).click();await expect(page.getByRole('status')).toContainText('Envio interrompido');
+  await page.getByRole('button',{name:'Sincronizar pendências'}).click();await expect(page.locator('.v2-alert[role="status"], [role="dialog"] .vault-message[role="status"]')).toContainText('Envio interrompido');
   await context.close();
   context=await chromium.launchPersistentContext(profile,{baseURL,serviceWorkers:'allow'});await applyStagingSso(context);page=await context.newPage();page.setDefaultTimeout(25_000);await page.goto('/offline');await unlockWorkbench(page);
   page.on('request',request=>{const path=new URL(request.url()).pathname;if(path.startsWith('/api/v1/'))console.log(`Envio: ${request.method()} ${path}`);});
@@ -133,7 +133,7 @@ test('anexo interrompido retoma após reinício e conflito de ação preserva ve
   const attached=await (await page.request.get(`/api/v1/actions/${action.id}`)).json();expect(attached.related.attachments).toHaveLength(1);expect(attached.related.attachments[0].status).toBe('AVAILABLE');
   await page.getByLabel('Versão a manter').selectOption('KEEP_CLIENT');await page.getByLabel('Justificativa da resolução').fill('Revisão sintética autorizada: reaplicar o progresso local de trinta por cento.');
   const resolutionRequest=page.waitForRequest(request=>new URL(request.url()).pathname==='/api/v1/offline/resolve');
-  await page.getByRole('button',{name:'Confirmar resolução auditada'}).click();await expect(page.getByRole('status')).toContainText('Conflito resolvido e auditado');
+  await page.getByRole('button',{name:'Confirmar resolução auditada'}).click();await expect(page.locator('.v2-alert[role="status"], [role="dialog"] .vault-message[role="status"]')).toContainText('Conflito resolvido e auditado');
   const repeated=await page.request.post('/api/v1/offline/resolve',{headers:{'x-device-id':deviceId},data:(await resolutionRequest).postDataJSON()});
   expect(repeated.status()).toBe(200);expect((await repeated.json()).duplicate).toBe(true);
   const resolved=await (await page.request.get(`/api/v1/actions/${action.id}`)).json();expect(resolved.record.percentage).toBe(30);expect(resolved.record.version).toBe(3);expect(resolved.related.comments.some((c:{comment:string})=>c.comment.includes('Resolução offline')&&c.comment.includes('Revisão sintética autorizada'))).toBe(true);
@@ -162,9 +162,9 @@ test('revogação de dispositivo sintético bloqueia reconexão e mantém pendê
   writeFileSync(`${artifactRoot}/revocation-device.json`,JSON.stringify({deviceId:device.deviceId,userId:device.userId,organizationId:device.organizationId,label,createdForThisTest:true}));
   console.log('Dispositivo sintético aguardando revogação controlada.');
   await expect(page.getByRole('button',{name:'Desbloquear cofre',exact:true})).toBeVisible({timeout:100_000});
-  await expect(page.getByRole('status')).toContainText(/bloqueado|autorização/);
+  await expect(page.locator('.v2-alert[role="status"], [role="dialog"] .vault-message[role="status"]')).toContainText(/bloqueado|autorização/);
   const denied=await page.request.post('/api/v1/knowledge',{headers:{'x-device-id':device.deviceId},data:{operationId:crypto.randomUUID(),organizationId:device.organizationId,unitId:'32747837-0478-49b4-be4d-f96d5e120c1d',title:'[HOMOLOGAÇÃO] Não pode gravar após revogação',type:'MANUAL',domain:'gestao'}});expect(denied.status()).toBe(401);
   const count=await page.evaluate(()=>new Promise<number>((resolve,reject)=>{const request=indexedDB.open('sgc-ubs-offline');request.onsuccess=()=>{const db=request.result;const read=db.transaction('records').objectStore('records').count();read.onsuccess=()=>{resolve(read.result);db.close();};read.onerror=()=>reject(read.error);};}));expect(count).toBeGreaterThan(1);
-  await context.setOffline(true);await page.getByLabel('PIN local',{exact:true}).fill('135790');await page.getByRole('button',{name:'Desbloquear cofre',exact:true}).click();await expect(page.getByRole('status')).toContainText(/expirou|expirado|revogado/);
+  await context.setOffline(true);await page.getByLabel('PIN local',{exact:true}).fill('135790');await page.getByRole('button',{name:'Desbloquear cofre',exact:true}).click();await expect(page.locator('.v2-alert[role="status"], [role="dialog"] .vault-message[role="status"]')).toContainText(/expirou|expirado|revogado/);
   await page.screenshot({path:info.outputPath('revogacao-pendencias-preservadas.png'),fullPage:true});await context.close();
 });

@@ -15,7 +15,7 @@ async function login(page: Page, role: string) {
   await page.getByLabel("E-mail", { exact: true }).fill(account.email);
   await page.getByLabel("Senha", { exact: true }).fill(account.password);
   await page.getByRole("button", { name: "Entrar", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Prioridades da unidade" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^(Prioridades da unidade|Olá,)/ })).toBeVisible();
 }
 async function command(page: Page, title: string, form?: Locator) {
   const response = page.waitForResponse(r => new URL(r.url()).pathname.startsWith("/api/v1/") && ["POST", "PUT"].includes(r.request().method()));
@@ -38,10 +38,12 @@ async function detail(page: Page, resource: string, id: string) {
 }
 async function selectUnit(page: Page, label: "A" | "B") {
   const response=page.waitForResponse(r=>new URL(r.url()).pathname==="/api/v1/workspace/scope"&&r.request().method()==="POST");
-  await page.getByRole("combobox",{name:"Unidade de trabalho"}).selectOption({label:`[HOMOLOGAÇÃO] UBS Sintética ${label} · [HOMOLOGAÇÃO] Município Sintético`});
+  const scope = page.getByRole("combobox",{name:"Unidade de trabalho"});
+  const value = await scope.locator('option').filter({hasText:`UBS Sintética ${label}`}).getAttribute('value');
+  expect(value).toBeTruthy(); await scope.selectOption(value!);
   expect((await response).status()).toBe(200);
   await expect(page.getByRole("combobox",{name:"Unidade de trabalho"})).toHaveValue(label === "A" ? /:32747837-0478-49b4-be4d-f96d5e120c1d$/ : /:04fa0c38-8f17-4747-87fa-0397e81612a4$/);
-  await expect(page.getByRole("heading",{name:"Prioridades da unidade"})).toBeVisible();
+  await expect(page.getByRole("heading",{name:/^(Prioridades da unidade|Olá,)/})).toBeVisible();
 }
 
 test("ciclo completo pela interface, com gerente A e leitor B segregados", async ({ page, browser }) => {
@@ -212,11 +214,20 @@ test("ciclo completo pela interface, com gerente A e leitor B segregados", async
   await reader.goto("/cadastros/knowledge");
   await expect(reader.getByText("Seu perfil permite consultar esta área, mas não criar registros.")).toBeVisible();
   await manager.goto("/");
-  await expect(manager.getByRole("heading", { name: "Prioridades da unidade" })).toBeVisible();
+  await expect(manager.getByRole("heading", { name: /^(Prioridades da unidade|Olá,)/ })).toBeVisible();
   const outsideCard=manager.getByRole("link",{name:/Medições fora da meta/});
-  const outsideCount=Number((await outsideCard.innerText()).match(/\d+/)?.[0]);
-  await outsideCard.click();
-  await expect(manager.getByText(`${outsideCount} registro(s) no recorte selecionado`,{exact:false})).toBeVisible();
+  if (await outsideCard.count()) {
+    const outsideCount=Number((await outsideCard.innerText()).match(/\d+/)?.[0]);
+    await outsideCard.click();
+    await expect(manager.getByText(`${outsideCount} registro(s) no recorte selecionado`,{exact:false})).toBeVisible();
+  } else {
+    await expect(manager.getByRole('link',{name:'Resultados',exact:true}).first()).toBeVisible();
+    await manager.goto('/indicadores?view=outside');
+    const total = await manager.request.get('/api/v1/measurements?status=FORA_META');
+    expect(total.status()).toBe(200);
+    const outside = await total.json();
+    await expect(manager.getByText(`${outside.total} registro(s) no recorte selecionado`,{exact:false})).toBeVisible();
+  }
   await expect(manager.locator(`a[href*="/measurements/${measurement}"]`).first()).toBeVisible();
   const exportA=await manager.request.get("/api/v1/exports/protocols?format=csv");
   expect(exportA.status()).toBe(200);

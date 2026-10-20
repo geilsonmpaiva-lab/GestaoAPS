@@ -6,6 +6,8 @@ Objetivo aprovado: registrar uma vez na equipe, acompanhar revisão na UBS e con
 
 Atualização da sequência: etapa 3 entregue em homologação; etapa 4 implementada e testada com dados sintéticos, com evidências e limites em [APS_LONGITUDINAL.md](APS_LONGITUDINAL.md). Os registros abaixo das etapas 1–2 são o histórico da auditoria, não o status corrente das etapas 3–4. Aceite observado e homologação física continuam pendentes; não houve promoção para produção.
 
+Etapa 5 em 19/10/2026: validação funcional sintética concluída no escopo testado, com 433 testes unitários, 530 asserções SQL/RLS e 15 jornadas distintas aprovadas após as repetições focais. Um caso de revogação dependente do operador não foi repetido; não se considera aprovado por omissão. Evidências, correções dos testes, pontos de atenção e roteiro físico F01–F14 estão em [PILOT_READINESS.md](PILOT_READINESS.md). Aceite em aparelhos reais, sessão observada e liberação institucional continuam pendentes. Sem migration ou deploy nesta rodada; aplicação de produção e Preview preservadas.
+
 - Público inicial: profissional da equipe; gerência e referência técnica recebem filas próprias.
 - Função + área + abrangência; cargo profissional não concede acesso. Dados nominais e exportação nominal dependem de concessão específica pela autoridade designada.
 - Acúmulo de responsabilidades explícito; autoaprovação não passa a ser liberada pela reforma visual.

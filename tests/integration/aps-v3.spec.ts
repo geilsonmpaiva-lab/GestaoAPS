@@ -72,8 +72,12 @@ test('APS V3: production, correction, manager review, closure, reports and reade
     const consultation = monthlySheet.getRows(10, 25)!.find(row => row.getCell(2).value === 'Consulta médica');
     expect(consultation?.getCell(3).value).toBe(19);
     await manager.goto(`/formularios-esf/producao/impressao?month=${month}&team=${teamA}`);
-    await expect(manager.locator('[data-paper-cell="Consulta médica:Mês"] text')).toHaveText('19');
-    await expect(manager.locator('[data-paper-cell="Consulta médica:TOTAL"] text')).toHaveText('19');
+    // The faithful paper is annual: other synthetic months may already exist.
+    const annualRow = workbook.getWorksheet('Consolidação anual')!.getRows(3,25)!.find(row => row.getCell(2).value === 'Consulta médica')!;
+    expect(annualRow.getCell(Number(month.slice(5)) + 2).value).toBe(19);
+    const knownMonths = Array.from({length:12},(_,i)=>annualRow.getCell(i+3).value).filter(v=>typeof v === 'number').map(String);
+    await expect(manager.locator('[data-paper-cell="Consulta médica:Mês"] text')).toHaveText(knownMonths);
+    await expect(manager.locator('[data-paper-cell="Consulta médica:TOTAL"] text')).toHaveText(String(annualRow.getCell(15).value));
     const pdf = await manager.pdf({ path: testInfo.outputPath('aps-v3-producao-preenchida.pdf'), preferCSSPageSize: true, printBackground: true });
     expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
 

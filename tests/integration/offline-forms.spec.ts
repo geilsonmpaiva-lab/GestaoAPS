@@ -10,7 +10,7 @@ const org='362db1a9-bfdd-4334-9436-46b1c0117eab',unit='32747837-0478-49b4-be4d-f
 const section=(page:Page,title:string)=>page.locator('section').filter({has:page.getByRole('heading',{name:title,exact:true})});
 async function login(page:Page,role:string){
  await applyStagingSso(page.context());
- const account=accounts.find(a=>a.role===role)!;await page.goto('/login');await page.getByLabel('E-mail',{exact:true}).fill(account.email);await page.getByLabel('Senha',{exact:true}).fill(account.password);await page.getByRole('button',{name:'Entrar',exact:true}).click();await expect(page.getByRole('heading',{name:'Prioridades da unidade'})).toBeVisible();
+ const account=accounts.find(a=>a.role===role)!;await page.goto('/login');await page.getByLabel('E-mail',{exact:true}).fill(account.email);await page.getByLabel('Senha',{exact:true}).fill(account.password);await page.getByRole('button',{name:'Entrar',exact:true}).click();await expect(page.getByRole('heading',{name:/^(Prioridades da unidade|Olá,)/})).toBeVisible();
  if(role==='ADMIN_SISTEMA'){const scope=page.getByRole('combobox',{name:'Unidade de trabalho'});const changed=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/v1/workspace/scope'&&r.request().method()==='POST');await scope.selectOption(`${org}:${unit}`);expect((await changed).status()).toBe(200);}
 }
 async function post(page:Page,path:string,data:Record<string,unknown>){
@@ -23,11 +23,11 @@ async function offlineCommand(page:Page,context:BrowserContext,resource:string,i
  const form=section(page,title);for(const [label,value] of Object.entries(fields)){const field=form.getByLabel(label,{exact:false});if(await field.evaluate(el=>el.tagName==='SELECT'))await field.selectOption(value);else await field.fill(value);}if(edit)await edit(form);
  await context.setOffline(true);await form.getByRole('button',{name:title,exact:true}).click();await expect(form.locator('form').getByRole('status')).toContainText('Aguardando envio');
  await context.setOffline(false);await page.goto('/offline');await page.getByLabel('PIN local',{exact:true}).fill('135790');await page.getByRole('button',{name:'Desbloquear cofre',exact:true}).click();
- const response=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/v1/offline/forms'&&r.request().method()==='POST');await page.getByRole('button',{name:'Sincronizar pendências',exact:true}).click();
+ const started=Date.now();const response=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/v1/offline/forms'&&r.request().method()==='POST',{timeout:90000});await page.getByRole('button',{name:'Sincronizar pendências',exact:true}).click();
  const confirmed=await response;const result=await confirmed.json();expect(confirmed.status(),JSON.stringify(result)).toBe(200);expect(result.status).toBe('confirmed');
- await expect(page.getByRole('status')).toContainText('Sincronização verificada');await expect(page.getByText('Conflito — entidade bloqueada nesta fila',{exact:true})).toHaveCount(0);
+ await expect(page.locator('.v2-alert[role="status"], [role="dialog"] .vault-message[role="status"]')).toContainText('Sincronização verificada');await expect(page.getByText('Conflito — entidade bloqueada nesta fila',{exact:true})).toHaveCount(0);
  const envelope=confirmed.request().postDataJSON();const repeated=await page.request.post('/api/v1/offline/forms',{headers:{'x-device-id':envelope.deviceId},data:envelope}).catch(()=>{throw new Error('Reenvio sintético interrompido; credenciais omitidas.');});expect(repeated.status()).toBe(200);expect((await repeated.json()).duplicate).toBe(true);
- console.log(`Formulário offline confirmado: ${resource}/${envelope.command}`);return {result:result.result,envelope};
+ console.log(`Formulário offline confirmado: ${resource}/${envelope.command} · ${Math.round((Date.now()-started)/1000)}s`);return {result:result.result,envelope};
 }
 
 test('14 formulários MVP gravam offline pela interface e reenvio não duplica',async({page,context,browser})=>{
@@ -77,14 +77,14 @@ test('formulário sobrevive reinício sem rede, resposta perdida e conflito de p
  async function unlock(){await page.goto('/offline');await page.getByLabel('PIN local',{exact:true}).fill('135790');await page.getByRole('button',{name:'Desbloquear cofre',exact:true}).click();await expect(page.getByRole('button',{name:'Sincronizar pendências',exact:true})).toBeVisible();}
  await prepareAgenda('1','Pauta sintética antes do reinício');await context.close();
  context=await chromium.launchPersistentContext(profile,{baseURL:info.project.use.baseURL,serviceWorkers:'allow'});await applyStagingSso(context);page=await context.newPage();await context.setOffline(true);await unlock();await expect(page.getByText('Aguardando envio',{exact:true})).toBeVisible();await expect(page.getByText('Confirmado pelo servidor',{exact:true})).toHaveCount(0);
- await context.setOffline(false);await page.route('**/api/v1/offline/forms',async route=>{const result=await route.fetch();expect(result.status()).toBe(200);await route.abort();},{times:1});await page.getByRole('button',{name:'Sincronizar pendências',exact:true}).click();await expect(page.getByRole('status')).toContainText('Itens preservados');
+ await context.setOffline(false);await page.route('**/api/v1/offline/forms',async route=>{const result=await route.fetch();expect(result.status()).toBe(200);await route.abort();},{times:1});await page.getByRole('button',{name:'Sincronizar pendências',exact:true}).click();await expect(page.locator('.v2-alert[role="status"], [role="dialog"] .vault-message[role="status"]')).toContainText('Itens preservados');
  await page.getByRole('button',{name:'Sincronizar pendências',exact:true}).click();await expect(page.getByText('Confirmado pelo servidor',{exact:true})).toBeVisible();
  const first=await (await page.request.get(`/api/v1/meetings/${meeting.id}`)).json();expect(first.related.agenda).toHaveLength(1);
  await prepareAgenda('2','Pauta offline a reavaliar');await context.setOffline(false);
  await post(page,`meetings/${meeting.id}/agenda`,{position:3,title:'Pauta concorrente inserida online'});
  await unlock();await page.getByRole('button',{name:'Sincronizar pendências',exact:true}).click();await expect(page.getByText('Conflito — entidade bloqueada nesta fila',{exact:true})).toBeVisible();
  await page.getByLabel('Decisão sobre a transição').selectOption('RETRY');await page.getByLabel('Motivo da decisão').fill('Pauta concorrente revisada; confirmar a inclusão sem duplicação.');
- const resolving=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/v1/offline/forms');await page.getByRole('button',{name:'Confirmar decisão sobre a transição',exact:true}).click();const resolved=await resolving;expect(resolved.status()).toBe(200);await expect(page.getByRole('status')).toContainText('Conflito resolvido e auditado');
+ const resolving=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/v1/offline/forms');await page.getByRole('button',{name:'Confirmar decisão sobre a transição',exact:true}).click();const resolved=await resolving;expect(resolved.status()).toBe(200);await expect(page.locator('.v2-alert[role="status"], [role="dialog"] .vault-message[role="status"]')).toContainText('Conflito resolvido e auditado');
  const envelope=resolved.request().postDataJSON();const replay=await page.request.post('/api/v1/offline/forms',{headers:{'x-device-id':envelope.deviceId},data:envelope});expect((await replay.json()).duplicate).toBe(true);
  const final=await (await page.request.get(`/api/v1/meetings/${meeting.id}`)).json();expect(final.record.status).toBe('SCHEDULED');expect(final.related.agenda).toHaveLength(3);expect(final.related.agenda.filter((a:{position:number})=>a.position===2)).toHaveLength(1);
  writeFileSync(`${artifactRoot}/form-resolution.json`,JSON.stringify({operationId:envelope.operationId,sourceOperationId:envelope.sourceOperationId,entityId:meeting.id}));await page.screenshot({path:info.outputPath('formulario-conflito-resolvido.png'),fullPage:true});await context.close();

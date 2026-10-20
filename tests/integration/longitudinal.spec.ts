@@ -51,7 +51,12 @@ for (const area of ['hanseniase', 'tuberculose']) test(`longitudinal ${area}: tw
     const book = new ExcelJS.Workbook(); await book.xlsx.load(await exportResponse.body() as never); expect(JSON.stringify(book.model)).toContain(name); expect(JSON.stringify(book.model)).toContain('00001');
     book.worksheets.forEach(s => s.eachRow(r => r.eachCell(c => expect(c.type).not.toBe(ExcelJS.ValueType.Formula))));
     await admin.goto('/vigilancia/acompanhamentos/impressao?' + reportQuery); await expect(admin.locator('[data-paper-cell] title').filter({ hasText: `NOME: ${name}` }).or(admin.locator('.esf-paper-annex td').filter({ hasText: name }))).not.toHaveCount(0);
-    const pdf = await admin.pdf({ path: info.outputPath(`longitudinal-${area}.pdf`), preferCSSPageSize: true, printBackground: true }); expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+    // RSC can stream the report into a hidden container before revealing it.
+    // Presence/count alone can print only the loading screen.
+    await expect(admin.getByRole('heading', { name: 'Formulário revisado preenchido', exact: true })).toBeVisible();
+    await expect(admin.locator('svg.esf-source-canvas').first()).toBeVisible();
+    await expect(admin.getByLabel('Carregando', { exact: true })).not.toBeVisible();
+    const pdf = await admin.pdf({ path: info.outputPath(`longitudinal-${area}.pdf`), preferCSSPageSize: true, printBackground: true }); expect(pdf.subarray(0, 5).toString()).toBe('%PDF-'); expect(pdf.length).toBeGreaterThan(10000);
     await admin.screenshot({ path: info.outputPath(`longitudinal-${area}.png`), fullPage: true });
     await admin.goto(`/vigilancia/acompanhamentos?area=${area}&month=${next}&team=${team}&case=${caseId}`);
     await expect(admin.getByLabel('Nome sintético', { exact: true })).toHaveValue(name); await expect(admin.getByLabel('Data deste acompanhamento', { exact: true })).toHaveValue('');

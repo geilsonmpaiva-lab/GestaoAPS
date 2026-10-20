@@ -8,7 +8,7 @@ const org='362db1a9-bfdd-4334-9436-46b1c0117eab',unit='32747837-0478-49b4-be4d-f
 const section=(page:Page,title:string)=>page.locator('section').filter({has:page.getByRole('heading',{name:title,exact:true})});
 async function login(page:Page,role:string){
  await applyStagingSso(page.context());
- const account=accounts.find(a=>a.role===role)!;await page.goto('/login');await page.getByLabel('E-mail',{exact:true}).fill(account.email);await page.getByLabel('Senha',{exact:true}).fill(account.password);await page.getByRole('button',{name:'Entrar',exact:true}).click();await expect(page.getByRole('heading',{name:'Prioridades da unidade'})).toBeVisible();
+ const account=accounts.find(a=>a.role===role)!;await page.goto('/login');await page.getByLabel('E-mail',{exact:true}).fill(account.email);await page.getByLabel('Senha',{exact:true}).fill(account.password);await page.getByRole('button',{name:'Entrar',exact:true}).click();await expect(page.getByRole('heading',{name:/^(Prioridades da unidade|Olá,)/})).toBeVisible();
  if(role==='ADMIN_SISTEMA'){
   const scope=page.getByRole('combobox',{name:'Unidade de trabalho'});
   const changed=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/v1/workspace/scope'&&r.request().method()==='POST');
@@ -32,7 +32,7 @@ async function synchronize(page:Page,context:BrowserContext,title:string,lostRes
  await context.setOffline(false);await page.goto('/offline');await unlockWorkbench(page);
  let original:Envelope|undefined;
  const capture=(request:import('@playwright/test').Request)=>{if(new URL(request.url()).pathname==='/api/v1/offline/transitions')original=request.postDataJSON();};page.on('request',capture);
- if(lostResponse){await page.route('**/api/v1/offline/transitions',async route=>{const result=await route.fetch();expect(result.status()).toBe(200);await route.abort();},{times:1});await page.getByRole('button',{name:'Sincronizar pendências',exact:true}).click();await expect(page.getByRole('status')).toContainText('Itens preservados');}
+ if(lostResponse){await page.route('**/api/v1/offline/transitions',async route=>{const result=await route.fetch();expect(result.status()).toBe(200);await route.abort();},{times:1});await page.getByRole('button',{name:'Sincronizar pendências',exact:true}).click();await expect(page.locator('.v2-alert[role="status"], [role="dialog"] .vault-message[role="status"]')).toContainText('Itens preservados');}
  await page.getByRole('button',{name:'Sincronizar pendências',exact:true}).click();
  const queued=section(page,title);await expect(queued.getByText('Confirmado pelo servidor',{exact:true})).toBeVisible({timeout:45000});
  page.off('request',capture);expect(original).toBeDefined();
@@ -81,7 +81,7 @@ for(const decision of ['KEEP_SERVER','RETRY'] as const)test(`alteração de paut
  await expect(page.getByText('Conflito — entidade bloqueada nesta fila',{exact:true})).toBeVisible({timeout:45000});
  await expect(page.locator('pre').nth(1)).toContainText('Pauta adicionada');
  await page.getByLabel('Decisão sobre a transição').selectOption(decision);await page.getByLabel('Motivo da decisão').fill(decision==='KEEP_SERVER'?'Preservar agendamento e revisar a pauta sintética antes de iniciar.':'Pauta sintética revisada: confirmar explicitamente o início da reunião.');
- const request=page.waitForRequest(r=>new URL(r.url()).pathname==='/api/v1/offline/transitions');await page.getByRole('button',{name:'Confirmar decisão sobre a transição',exact:true}).click();await expect(page.getByRole('status')).toContainText('Conflito resolvido e auditado');
+ const request=page.waitForRequest(r=>new URL(r.url()).pathname==='/api/v1/offline/transitions');await page.getByRole('button',{name:'Confirmar decisão sobre a transição',exact:true}).click();await expect(page.locator('.v2-alert[role="status"], [role="dialog"] .vault-message[role="status"]')).toContainText('Conflito resolvido e auditado');
  const envelope=(await request).postDataJSON();const repeat=await page.request.post('/api/v1/offline/transitions',{headers:{'x-device-id':envelope.deviceId},data:envelope});expect((await repeat.json()).duplicate).toBe(true);
  const current=await (await page.request.get(`/api/v1/meetings/${meeting.id}`)).json();expect(current.record.status).toBe(decision==='KEEP_SERVER'?'SCHEDULED':'IN_PROGRESS');
  const readerContext=await browser.newContext({baseURL:page.url().split('/offline')[0]});const reader=await readerContext.newPage();await login(reader,'LEITOR');
